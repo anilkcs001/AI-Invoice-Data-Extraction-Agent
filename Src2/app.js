@@ -2,14 +2,11 @@
  * @file app.js
  * @description All logic for the dependency graph viewer.
  *
- * CRITICAL: This file defines window.LoadGraph and window.HighlightNode.
- * All event wiring happens INSIDE LoadGraph after data is loaded,
- * because that is the first moment we are sure the DOM exists AND data is ready.
+ * CRITICAL: All event wiring happens INSIDE wireEvents() called from LoadGraph,
+ * because that is the first moment DOM exists AND data is ready.
  *
- * Flow:
- *   1. startup.js builds DOM, loads vis.js, fires OnReady
- *   2. AL receives OnReady, calls LoadGraph(json)
- *   3. LoadGraph parses data, renders list, wires ALL events
+ * NEW: Filter pills inside Install Order and Tree View tabs to filter
+ * dependency chain by type (All / Microsoft / ISV / Custom / 3rd Party).
  */
 (function () {
     "use strict";
@@ -23,7 +20,8 @@
     var depsOf = {};
     var requiredBy = {};
     var selectedId = null;
-    var activeFilter = "all";
+    var activeFilter = "all";       // Left panel list filter
+    var depFilter = "all";          // Install Order / Tree tab filter
     var searchText = "";
     var isDark = false;
     var activeTab = "order";
@@ -63,7 +61,6 @@
         allNodes = data.nodes || [];
         allEdges = data.edges || [];
 
-        // Build lookups
         nodeMap = {};
         depsOf = {};
         requiredBy = {};
@@ -80,35 +77,26 @@
             if (requiredBy[e.to]) requiredBy[e.to].push(e.from);
         }
 
-        // Sort alphabetically
         allNodes.sort(function (a, b) {
             return (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase());
         });
 
-        // Update count
         var statEl = document.getElementById("dgStatNum");
         if (statEl) statEl.textContent = String(allNodes.length);
 
-        // Reset state
         selectedId = null;
         activeFilter = "all";
+        depFilter = "all";
         searchText = "";
         activeTab = "order";
 
-        // Clear search
         var searchEl = document.getElementById("dgSearch");
         if (searchEl) searchEl.value = "";
 
-        // Reset filter buttons
         resetFilterButtons("all");
-
-        // Render the list
         renderList();
-
-        // Show placeholder, hide detail
         showPlaceholder();
 
-        // Wire events (only once)
         if (!eventsWired) {
             wireEvents();
             eventsWired = true;
@@ -125,7 +113,7 @@
     };
 
     // ═══════════════════════════════════════════════════════════════
-    // RENDER THE EXTENSION LIST
+    // RENDER THE EXTENSION LIST (left panel)
     // ═══════════════════════════════════════════════════════════════
     function renderList() {
         var container = document.getElementById("dgExtList");
@@ -137,9 +125,7 @@
 
         for (i = 0; i < allNodes.length; i++) {
             n = allNodes[i];
-            // Type filter
             if (activeFilter !== "all" && n.type !== activeFilter) continue;
-            // Search filter
             if (q !== "") {
                 var nameMatch = (n.name || "").toLowerCase().indexOf(q) !== -1;
                 var pubMatch = (n.publisher || "").toLowerCase().indexOf(q) !== -1;
@@ -183,20 +169,17 @@
     function doSelect(id) {
         if (!nodeMap[id]) return;
         selectedId = id;
+        depFilter = "all"; // Reset dep filter on new selection
 
-        // Re-render list to show active highlight
         renderList();
 
-        // Scroll active item into view
         setTimeout(function () {
             var activeEl = document.querySelector('.dg-item-on');
             if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }, 50);
 
-        // Show detail panel
         showDetail(id);
 
-        // Fire AL callback
         var nd = nodeMap[id];
         try {
             Microsoft.Dynamics.NAV.InvokeExtensibilityMethod("OnNodeSelected", [
@@ -224,7 +207,6 @@
         var nd = nodeMap[id];
         if (!nd) return;
 
-        // Header
         setText("dgDetName", nd.name);
         setText("dgDetPub", nd.publisher);
         setText("dgDetVer", "v" + nd.version);
@@ -235,10 +217,92 @@
             typeEl.style.backgroundColor = COLORS[nd.type] || COLORS.ext;
         }
 
-        // Reset to install order tab
         activeTab = "order";
+        depFilter = "all";
         resetTabButtons("order");
         renderTabContent();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // DEPENDENCY FILTER PILLS (shared by Install Order + Tree View)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Builds the HTML for the dependency filter pill bar.
+     * Used inside Install Order and Tree View tabs.
+     * @param {Object} counts - { all, ms, isv, custom, ext } counts
+     * @returns {string} HTML string
+     */
+    function buildDepFilterBar(counts) {
+        var types = [
+            { key: "all", label: "All" },
+            { key: "ms", label: "Microsoft" },
+            { key: "isv", label: "ISV" },
+            { key: "custom", label: "Custom" },
+            { key: "ext", label: "3rd Party" }
+        ];
+
+        var html = '<div class="dg-dep-filters">';
+        for (var i = 0; i < types.length; i++) {
+            var t = types[i];
+            var count = counts[t.key] || 0;
+            var isOn = (depFilter === t.key);
+
+            // Skip types with zero count (except "all")
+            if (t.key !== "all" && count === 0) continue;
+
+            var style = '';
+            if (isOn && t.key !== "all" && COLORS[t.key]) {
+                style = ' style="background:' + COLORS[t.key] + ';color:#fff;border-color:' + COLORS[t.key] + '"';
+            }
+
+            html += '<button class="dg-dep-pill' + (isOn ? ' dg-dep-pill-on' : '') + '" data-deptype="' + t.key + '"' + style + '>';
+            html += t.label;
+            html += '<span class="dg-dep-pill-count">' + (t.key === "all" ? counts.all : count) + '</span>';
+            html += '</button>';
+        }
+        html += '</div>';
+        return html;
+    }
+
+    /**
+     * Counts how many items of each type are in a list of node IDs.
+     * @param {string[]} ids - Array of node IDs
+     * @returns {Object} { all, ms, isv, custom, ext }
+     */
+    function countTypes(ids) {
+        var counts = { all: ids.length, ms: 0, isv: 0, custom: 0, ext: 0 };
+        for (var i = 0; i < ids.length; i++) {
+            var nd = nodeMap[ids[i]];
+            if (nd && counts.hasOwnProperty(nd.type)) {
+                counts[nd.type]++;
+            }
+        }
+        return counts;
+    }
+
+    /**
+     * Filters a list of node IDs by the current depFilter.
+     * Always includes the selected extension regardless of filter.
+     * @param {string[]} ids
+     * @returns {string[]}
+     */
+    function filterByDepType(ids) {
+        if (depFilter === "all") return ids;
+        var result = [];
+        for (var i = 0; i < ids.length; i++) {
+            var nd = nodeMap[ids[i]];
+            if (!nd) continue;
+            // Always include the selected extension itself
+            if (ids[i] === selectedId) {
+                result.push(ids[i]);
+                continue;
+            }
+            if (nd.type === depFilter) {
+                result.push(ids[i]);
+            }
+        }
+        return result;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -277,32 +341,36 @@
     }
 
     function renderInstallOrder(container) {
-        var order = getInstallOrder(selectedId);
+        if (!selectedId) return;
+
+        var fullOrder = getInstallOrder(selectedId);
+        var counts = countTypes(fullOrder);
+        var filtered = filterByDepType(fullOrder);
 
         var html = '';
 
-        if (order.length <= 1) {
+        // Filter pills
+        html += buildDepFilterBar(counts);
+
+        if (fullOrder.length <= 1) {
             html += '<div class="dg-info-msg">This extension has no dependencies. Install it directly.</div>';
             html += buildOrderCard(selectedId, 1, 1, true);
         } else {
-            html += '<div class="dg-info-msg">Install these <strong>' + order.length + '</strong> extensions in this order:</div>';
-            for (var i = 0; i < order.length; i++) {
-                html += buildOrderCard(order[i], i + 1, order.length, order[i] === selectedId);
+            html += '<div class="dg-info-msg">Showing <strong>' + filtered.length + '</strong> of <strong>' + fullOrder.length + '</strong> extensions in install order:</div>';
+
+            var step = 0;
+            for (var i = 0; i < filtered.length; i++) {
+                step++;
+                html += buildOrderCard(filtered[i], step, filtered.length, filtered[i] === selectedId);
             }
         }
 
         container.innerHTML = html;
 
         // Wire clicks on order items
-        var items = container.querySelectorAll('.dg-ord');
-        for (var j = 0; j < items.length; j++) {
-            items[j].addEventListener('click', (function (el) {
-                return function () {
-                    var nid = el.getAttribute('data-id');
-                    if (nid && nid !== selectedId) doSelect(nid);
-                };
-            })(items[j]));
-        }
+        wireOrderClicks(container);
+        // Wire clicks on dep filter pills
+        wireDepFilterClicks(container);
     }
 
     function buildOrderCard(id, step, total, isRoot) {
@@ -314,7 +382,6 @@
         var s = '';
         s += '<div class="dg-ord' + (isRoot ? ' dg-ord-root' : '') + '" data-id="' + esc(id) + '">';
 
-        // Left: step + line
         s += '<div class="dg-ord-left">';
         s += '<div class="dg-ord-num' + (isRoot ? ' dg-ord-num-root' : '') + '">' + step + '</div>';
         if (!isLast) {
@@ -322,7 +389,6 @@
         }
         s += '</div>';
 
-        // Right: card
         s += '<div class="dg-ord-card' + (isRoot ? ' dg-ord-card-root' : '') + '">';
         s += '<div class="dg-ord-row1">';
         s += '<span class="dg-dot" style="background:' + col + '"></span>';
@@ -339,12 +405,11 @@
 
     // ── Tree View ───────────────────────────────────────────────
     function renderTreeView(container) {
-        container.innerHTML = '<div id="dgTreeCanvas" class="dg-tree-canvas"></div>';
+        if (!selectedId) return;
 
-        // Destroy old network
         if (network) { network.destroy(); network = null; }
 
-        // Collect chain nodes (all deps recursively + one level of requiredBy)
+        // Collect full chain
         var chainIds = {};
         function collectDeps(id) {
             if (chainIds[id]) return;
@@ -356,24 +421,41 @@
         }
         collectDeps(selectedId);
 
-        // Also show who requires this (one level up)
         var reqs = requiredBy[selectedId] || [];
         for (var r = 0; r < reqs.length; r++) {
             if (nodeMap[reqs[r]]) chainIds[reqs[r]] = true;
         }
 
-        var ids = Object.keys(chainIds);
-        if (ids.length === 0) {
-            container.innerHTML = '<div class="dg-info-msg">No dependency tree to display.</div>';
+        var allChainIds = Object.keys(chainIds);
+        var counts = countTypes(allChainIds);
+
+        // Apply dep filter
+        var filteredIds = {};
+        var filteredList = filterByDepType(allChainIds);
+        for (var f = 0; f < filteredList.length; f++) {
+            filteredIds[filteredList[f]] = true;
+        }
+
+        // Build HTML: filter bar + canvas
+        var html = '';
+        html += buildDepFilterBar(counts);
+        html += '<div class="dg-tree-info">Showing <strong>' + filteredList.length + '</strong> of <strong>' + allChainIds.length + '</strong> extensions in dependency tree</div>';
+        html += '<div id="dgTreeCanvas" class="dg-tree-canvas"></div>';
+        container.innerHTML = html;
+
+        // Wire dep filter clicks
+        wireDepFilterClicks(container);
+
+        if (filteredList.length === 0) {
             return;
         }
 
         // Build vis nodes
         var visNodes = [];
-        for (var i = 0; i < ids.length; i++) {
-            var nd = nodeMap[ids[i]];
+        for (var i = 0; i < filteredList.length; i++) {
+            var nd = nodeMap[filteredList[i]];
             if (!nd) continue;
-            var isRoot = (ids[i] === selectedId);
+            var isRoot = (filteredList[i] === selectedId);
             var baseCol = COLORS[nd.type] || COLORS.ext;
 
             visNodes.push({
@@ -393,23 +475,30 @@
                 },
                 borderWidth: isRoot ? 3 : 2,
                 margin: { top: 8, bottom: 8, left: 12, right: 12 },
-                shadow: { enabled: true, color: isRoot ? "rgba(245,158,11,0.25)" : "rgba(0,0,0,0.06)", size: isRoot ? 12 : 4 },
+                shadow: {
+                    enabled: true,
+                    color: isRoot ? "rgba(245,158,11,0.25)" : "rgba(0,0,0,0.06)",
+                    size: isRoot ? 12 : 4
+                },
                 widthConstraint: { minimum: 90, maximum: 200 }
             });
         }
 
-        // Build vis edges
+        // Build vis edges (only where both nodes are visible)
         var visEdges = [];
         var eidx = 0;
         for (var j = 0; j < allEdges.length; j++) {
             var edge = allEdges[j];
-            if (chainIds[edge.from] && chainIds[edge.to]) {
+            if (filteredIds[edge.from] && filteredIds[edge.to]) {
                 visEdges.push({
                     id: "e" + eidx++,
                     from: edge.from,
                     to: edge.to,
                     arrows: "to",
-                    color: { color: isDark ? "rgba(148,163,184,0.3)" : "rgba(100,116,139,0.35)", highlight: "#f59e0b" },
+                    color: {
+                        color: isDark ? "rgba(148,163,184,0.3)" : "rgba(100,116,139,0.35)",
+                        highlight: "#f59e0b"
+                    },
                     width: 1.5,
                     smooth: { type: "cubicBezier", forceDirection: "vertical", roundness: 0.4 }
                 });
@@ -442,7 +531,6 @@
             edges: { arrows: { to: { enabled: true, scaleFactor: 0.6 } } }
         });
 
-        // Click node in tree → navigate to that extension
         network.on("click", function (params) {
             if (params.nodes && params.nodes.length > 0) {
                 var clicked = params.nodes[0];
@@ -457,6 +545,8 @@
 
     // ── Required By ─────────────────────────────────────────────
     function renderRequiredBy(container) {
+        if (!selectedId) return;
+
         var reqs = (requiredBy[selectedId] || []).filter(function (id) { return !!nodeMap[id]; });
 
         if (reqs.length === 0) {
@@ -468,10 +558,19 @@
             return (nodeMap[a].name || "").toLowerCase().localeCompare((nodeMap[b].name || "").toLowerCase());
         });
 
-        var html = '<div class="dg-info-msg"><strong>' + reqs.length + '</strong> extension' + (reqs.length > 1 ? 's' : '') + ' depend' + (reqs.length === 1 ? 's' : '') + ' on this:</div>';
+        // Count types for required by
+        var counts = countTypes(reqs);
 
-        for (var i = 0; i < reqs.length; i++) {
-            var nd = nodeMap[reqs[i]];
+        var html = '';
+        html += buildDepFilterBar(counts);
+
+        // Filter
+        var filteredReqs = filterByDepType(reqs);
+
+        html += '<div class="dg-info-msg"><strong>' + filteredReqs.length + '</strong> of <strong>' + reqs.length + '</strong> extension' + (reqs.length > 1 ? 's' : '') + ' depend' + (reqs.length === 1 ? 's' : '') + ' on this:</div>';
+
+        for (var i = 0; i < filteredReqs.length; i++) {
+            var nd = nodeMap[filteredReqs[i]];
             if (!nd) continue;
             var col = COLORS[nd.type] || COLORS.ext;
             html += '<div class="dg-reqitem" data-id="' + esc(nd.id) + '">';
@@ -486,7 +585,7 @@
 
         container.innerHTML = html;
 
-        // Wire clicks
+        // Wire clicks on items
         var items = container.querySelectorAll('.dg-reqitem');
         for (var j = 0; j < items.length; j++) {
             items[j].addEventListener('click', (function (el) {
@@ -496,14 +595,66 @@
                 };
             })(items[j]));
         }
+
+        // Wire dep filter clicks
+        wireDepFilterClicks(container);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // EVENT WIRING — called once, after DOM is confirmed to exist
+    // WIRE DEP FILTER & ORDER CLICKS (reusable)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Attaches click listeners to dep filter pills inside a container.
+     * On click, updates depFilter and re-renders the active tab.
+     */
+    function wireDepFilterClicks(container) {
+        var pills = container.querySelectorAll('.dg-dep-pill');
+        for (var i = 0; i < pills.length; i++) {
+            pills[i].addEventListener('click', (function (el) {
+                return function (evt) {
+                    evt.stopPropagation();
+                    var newType = el.getAttribute('data-deptype');
+                    if (newType && newType !== depFilter) {
+                        depFilter = newType;
+                        renderTabContent();
+                    }
+                };
+            })(pills[i]));
+        }
+    }
+
+    /**
+     * Attaches click listeners to order cards inside a container.
+     */
+    function wireOrderClicks(container) {
+        var items = container.querySelectorAll('.dg-ord');
+        for (var i = 0; i < items.length; i++) {
+            items[i].addEventListener('click', (function (el) {
+                return function () {
+                    var nid = el.getAttribute('data-id');
+                    if (nid && nid !== selectedId) doSelect(nid);
+                };
+            })(items[i]));
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // TAB SWITCHING
+    // ═══════════════════════════════════════════════════════════════
+    function switchTab(tab) {
+        activeTab = tab;
+        depFilter = "all"; // Reset dep filter when switching tabs
+        resetTabButtons(tab);
+        renderTabContent();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // EVENT WIRING — called once from LoadGraph
     // ═══════════════════════════════════════════════════════════════
     function wireEvents() {
 
-        // ── Extension list click (event delegation) ─────────────
+        // ── Extension list click ────────────────────────────────
         var listEl = document.getElementById("dgExtList");
         if (listEl) {
             listEl.addEventListener("click", function (evt) {
@@ -522,14 +673,13 @@
             });
         }
 
-        // ── Search input ────────────────────────────────────────
+        // ── Search ──────────────────────────────────────────────
         var searchEl = document.getElementById("dgSearch");
         if (searchEl) {
             searchEl.addEventListener("input", function () {
                 searchText = (searchEl.value || "").trim();
                 renderList();
             });
-            // Also handle paste
             searchEl.addEventListener("paste", function () {
                 setTimeout(function () {
                     searchText = (searchEl.value || "").trim();
@@ -538,7 +688,7 @@
             });
         }
 
-        // ── Filter buttons ──────────────────────────────────────
+        // ── Left panel filter buttons ───────────────────────────
         var filterRow = document.getElementById("dgFilterRow");
         if (filterRow) {
             filterRow.addEventListener("click", function (evt) {
@@ -571,9 +721,7 @@
                     if (target.classList && target.classList.contains("dg-tab")) {
                         var tab = target.getAttribute("data-tab");
                         if (tab && tab !== activeTab) {
-                            activeTab = tab;
-                            resetTabButtons(tab);
-                            renderTabContent();
+                            switchTab(tab);
                         }
                         return;
                     }
@@ -602,12 +750,9 @@
                 var icon = document.getElementById("dgThemeIcon");
                 if (icon) icon.innerHTML = isDark ? "&#9788;" : "&#9790;";
 
-                // Re-render tree if active
-                if (activeTab === "tree" && selectedId) {
+                if ((activeTab === "tree") && selectedId) {
                     var body = document.getElementById("dgTabBody");
-                    if (body) {
-                        setTimeout(function () { renderTreeView(body); }, 50);
-                    }
+                    if (body) setTimeout(function () { renderTreeView(body); }, 50);
                 }
             });
         }
