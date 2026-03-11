@@ -1,51 +1,103 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   Extension Dependency Graph – Dark Theme Styles
+   Extension Dependency Graph — Light/Dark Theme
+   Default: Light mode (.dg-light)
+   Toggle:  Dark mode (.dg-dark)
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* ── Reset ───────────────────────────────────────────────────────────── */
-*,
-*::before,
-*::after {
+*, *::before, *::after {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
 }
 
-/* ── Root container ──────────────────────────────────────────────────── */
+/* ═════════════════════════════════════════════════════════════════════
+   CSS VARIABLES — Light & Dark
+   ═════════════════════════════════════════════════════════════════════ */
+.dg-light {
+    --dg-bg: #f8fafc;
+    --dg-surface: #ffffff;
+    --dg-surface-hover: #f1f5f9;
+    --dg-border: #e2e8f0;
+    --dg-border-light: #f1f5f9;
+    --dg-text-primary: #0f172a;
+    --dg-text-secondary: #475569;
+    --dg-text-muted: #94a3b8;
+    --dg-shadow: rgba(0, 0, 0, 0.06);
+    --dg-shadow-lg: rgba(0, 0, 0, 0.1);
+    --dg-pill-bg: #f1f5f9;
+    --dg-pill-border: #e2e8f0;
+    --dg-pill-text: #475569;
+    --dg-pill-active-bg: #0f172a;
+    --dg-pill-active-text: #ffffff;
+    --dg-panel-bg: rgba(255, 255, 255, 0.92);
+    --dg-panel-blur: blur(20px) saturate(1.3);
+    --dg-chip-bg: #f8fafc;
+    --dg-chip-border: #e2e8f0;
+    --dg-chip-hover-bg: #f1f5f9;
+    --dg-hint-color: #94a3b8;
+    --dg-graph-bg: #ffffff;
+    --dg-dot-color: rgba(0, 0, 0, 0.04);
+    --dg-close-hover-bg: rgba(244, 63, 94, 0.1);
+    --dg-scrollbar-track: rgba(0, 0, 0, 0.02);
+    --dg-scrollbar-thumb: rgba(0, 0, 0, 0.08);
+    --dg-topbar-bg: #ffffff;
+    --dg-legend-bg: rgba(255, 255, 255, 0.9);
+}
+
+.dg-dark {
+    --dg-bg: #0f172a;
+    --dg-surface: #1e293b;
+    --dg-surface-hover: #334155;
+    --dg-border: rgba(255, 255, 255, 0.08);
+    --dg-border-light: rgba(255, 255, 255, 0.04);
+    --dg-text-primary: #f1f5f9;
+    --dg-text-secondary: #cbd5e1;
+    --dg-text-muted: #64748b;
+    --dg-shadow: rgba(0, 0, 0, 0.2);
+    --dg-shadow-lg: rgba(0, 0, 0, 0.3);
+    --dg-pill-bg: rgba(255, 255, 255, 0.06);
+    --dg-pill-border: rgba(255, 255, 255, 0.1);
+    --dg-pill-text: #94a3b8;
+    --dg-pill-active-bg: #f1f5f9;
+    --dg-pill-active-text: #0f172a;
+    --dg-panel-bg: rgba(15, 23, 42, 0.88);
+    --dg-panel-blur: blur(24px) saturate(1.4);
+    --dg-chip-bg: rgba(255, 255, 255, 0.04);
+    --dg-chip-border: rgba(255, 255, 255, 0.08);
+    --dg-chip-hover-bg: rgba(255, 255, 255, 0.08);
+    --dg-hint-color: #64748b;
+    --dg-graph-bg: #0f172a;
+    --dg-dot-color: rgba(255, 255, 255, 0.03);
+    --dg-close-hover-bg: rgba(244, 63, 94, 0.2);
+    --dg-scrollbar-track: rgba(255, 255, 255, 0.02);
+    --dg-scrollbar-thumb: rgba(255, 255, 255, 0.1);
+    --dg-topbar-bg: rgba(15, 23, 42, 0.95);
+    --dg-legend-bg: rgba(15, 23, 42, 0.9);
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   ROOT
+   ═════════════════════════════════════════════════════════════════════ */
 .dg-root {
     width: 100%;
     height: 100%;
-    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    color: #e2e8f0;
-    background-color: #070b12;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: var(--dg-text-primary);
+    background-color: var(--dg-bg);
     display: flex;
     flex-direction: column;
     overflow: hidden;
     position: relative;
 
-    /* Dot-grid background pattern */
-    background-image:
-        radial-gradient(circle, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-    background-size: 24px 24px;
+    background-image: radial-gradient(circle, var(--dg-dot-color) 1px, transparent 1px);
+    background-size: 20px 20px;
+    transition: background-color 0.4s ease, color 0.4s ease;
 }
 
-/* ── Custom scrollbar ────────────────────────────────────────────────── */
-.dg-root ::-webkit-scrollbar {
-    width: 6px;
-}
-
-.dg-root ::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.dg-root ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
-}
-
-.dg-root ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.18);
-}
+/* ── Scrollbar ───────────────────────────────────────────────────────── */
+.dg-root ::-webkit-scrollbar { width: 5px; }
+.dg-root ::-webkit-scrollbar-track { background: var(--dg-scrollbar-track); }
+.dg-root ::-webkit-scrollbar-thumb { background: var(--dg-scrollbar-thumb); border-radius: 3px; }
 
 /* ═════════════════════════════════════════════════════════════════════
    TOP BAR
@@ -54,11 +106,13 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 20px;
-    background: rgba(255, 255, 255, 0.025);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 10px 20px;
+    background: var(--dg-topbar-bg);
+    border-bottom: 1px solid var(--dg-border);
     flex-shrink: 0;
-    z-index: 5;
+    z-index: 10;
+    box-shadow: 0 1px 3px var(--dg-shadow);
+    transition: background 0.4s ease, border-color 0.4s ease;
 }
 
 .dg-topbar-left {
@@ -73,33 +127,60 @@
 }
 
 .dg-title {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 700;
-    letter-spacing: -0.02em;
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    letter-spacing: -0.01em;
+    color: var(--dg-text-primary);
+    transition: color 0.4s ease;
 }
 
 .dg-topbar-right {
     display: flex;
     align-items: center;
-    gap: 18px;
+    gap: 16px;
 }
 
 .dg-stat {
     font-size: 13px;
-    color: #94a3b8;
+    color: var(--dg-text-muted);
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
+    transition: color 0.4s ease;
 }
 
-.dg-stat-num {
+.dg-stat strong {
     font-weight: 700;
-    color: #e2e8f0;
-    font-size: 15px;
+    color: var(--dg-text-primary);
+    font-size: 14px;
+    transition: color 0.4s ease;
+}
+
+/* ── Theme toggle button ─────────────────────────────────────────────── */
+.dg-theme-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--dg-border);
+    background: var(--dg-pill-bg);
+    color: var(--dg-text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    outline: none;
+}
+
+.dg-theme-btn:hover {
+    background: var(--dg-surface-hover);
+    border-color: #3b82f6;
+    color: #3b82f6;
+}
+
+.dg-theme-icon {
+    line-height: 1;
 }
 
 /* ═════════════════════════════════════════════════════════════════════
@@ -113,39 +194,44 @@
     flex-shrink: 0;
     flex-wrap: wrap;
     z-index: 5;
+    background: var(--dg-bg);
+    transition: background 0.4s ease;
 }
 
 .dg-pill {
     padding: 6px 16px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.04);
-    color: #cbd5e1;
+    border-radius: 8px;
+    border: 1px solid var(--dg-pill-border);
+    background: var(--dg-pill-bg);
+    color: var(--dg-pill-text);
     font-family: inherit;
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.25s ease;
     outline: none;
     -webkit-user-select: none;
     user-select: none;
 }
 
 .dg-pill:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #f1f5f9;
-    border-color: rgba(255, 255, 255, 0.2);
+    background: var(--dg-surface-hover);
+    border-color: var(--dg-text-muted);
+    color: var(--dg-text-primary);
 }
 
+/* Active state — "All" pill uses neutral dark/light */
 .dg-pill-active {
-    background: rgba(59, 130, 246, 0.2);
-    color: #f1f5f9;
-    border-color: rgba(59, 130, 246, 0.45);
-    box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
+    background: var(--dg-pill-active-bg);
+    color: var(--dg-pill-active-text);
+    border-color: var(--dg-pill-active-bg);
+    font-weight: 600;
 }
+
+/* When JS sets inline styles for colored pills, those override these defaults */
 
 /* ═════════════════════════════════════════════════════════════════════
-   MAIN CONTENT AREA
+   MAIN CONTENT
    ═════════════════════════════════════════════════════════════════════ */
 .dg-main {
     flex: 1;
@@ -160,6 +246,8 @@
     position: relative;
     overflow: hidden;
     min-width: 0;
+    background: var(--dg-graph-bg);
+    transition: background 0.4s ease;
 }
 
 .dg-network {
@@ -167,94 +255,125 @@
     height: 100%;
 }
 
-/* Loading / hint overlay */
+.dg-network canvas {
+    outline: none;
+}
+
 .dg-graph-hint {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    top: 0; left: 0; right: 0; bottom: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 15px;
-    color: #64748b;
+    font-size: 14px;
+    color: var(--dg-hint-color);
     pointer-events: none;
     z-index: 2;
-    letter-spacing: 0.01em;
+    transition: color 0.4s ease;
 }
 
 /* ═════════════════════════════════════════════════════════════════════
-   DETAIL PANEL (frosted glass, slides in from right)
+   LEGEND BAR (bottom)
+   ═════════════════════════════════════════════════════════════════════ */
+.dg-legend {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 8px 20px;
+    background: var(--dg-legend-bg);
+    border-top: 1px solid var(--dg-border);
+    flex-shrink: 0;
+    z-index: 5;
+    transition: background 0.4s ease, border-color 0.4s ease;
+}
+
+.dg-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--dg-text-muted);
+    font-weight: 500;
+}
+
+.dg-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   DETAIL PANEL — slides in from right
    ═════════════════════════════════════════════════════════════════════ */
 .dg-detail {
     position: absolute;
     top: 0;
     right: 0;
     bottom: 0;
-    width: 360px;
+    width: 340px;
     max-width: 90vw;
     z-index: 20;
     padding: 24px 20px;
     overflow-y: auto;
 
-    /* Frosted glass effect */
-    background: rgba(15, 23, 42, 0.82);
-    -webkit-backdrop-filter: blur(24px) saturate(1.4);
-    backdrop-filter: blur(24px) saturate(1.4);
-    border-left: 1px solid rgba(255, 255, 255, 0.07);
-    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.4);
+    background: var(--dg-panel-bg);
+    -webkit-backdrop-filter: var(--dg-panel-blur);
+    backdrop-filter: var(--dg-panel-blur);
+    border-left: 1px solid var(--dg-border);
+    box-shadow: -4px 0 24px var(--dg-shadow-lg);
 
-    /* Slide animation — hidden by default */
     transform: translateX(110%);
-    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                background 0.4s ease,
+                border-color 0.4s ease;
 }
 
 .dg-detail-open {
     transform: translateX(0);
 }
 
-/* Close button */
 .dg-detail-close {
     position: absolute;
-    top: 16px;
-    right: 16px;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.05);
-    color: #94a3b8;
-    font-size: 15px;
+    top: 14px;
+    right: 14px;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px solid var(--dg-border);
+    background: var(--dg-pill-bg);
+    color: var(--dg-text-muted);
+    font-size: 14px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.3s ease;
-    line-height: 1;
+    transition: all 0.25s ease;
     font-family: inherit;
     outline: none;
 }
 
 .dg-detail-close:hover {
-    background: rgba(244, 63, 94, 0.2);
+    background: var(--dg-close-hover-bg);
     color: #f43f5e;
-    border-color: rgba(244, 63, 94, 0.4);
+    border-color: #f43f5e;
 }
 
-/* ── Detail header ───────────────────────────────────────────────────── */
+/* ── Header ──────────────────────────────────────────────────────────── */
 .dg-detail-header {
-    margin-bottom: 24px;
-    padding-right: 40px;
+    margin-bottom: 22px;
+    padding-right: 36px;
 }
 
 .dg-detail-name {
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 700;
-    color: #f8fafc;
+    color: var(--dg-text-primary);
     margin-bottom: 10px;
     line-height: 1.3;
     word-break: break-word;
+    transition: color 0.4s ease;
 }
 
 .dg-detail-meta {
@@ -272,18 +391,19 @@
     border-radius: 6px;
     font-size: 12px;
     font-weight: 500;
+    transition: background 0.3s ease, color 0.3s ease;
 }
 
 .dg-badge-publisher {
-    background: rgba(255, 255, 255, 0.06);
-    color: #94a3b8;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--dg-pill-bg);
+    color: var(--dg-text-secondary);
+    border: 1px solid var(--dg-border);
 }
 
 .dg-badge-version {
-    background: rgba(59, 130, 246, 0.15);
-    color: #93c5fd;
-    border: 1px solid rgba(59, 130, 246, 0.25);
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.2);
 }
 
 .dg-badge-type {
@@ -296,9 +416,9 @@
     text-transform: uppercase;
 }
 
-/* ── Detail sections ─────────────────────────────────────────────────── */
+/* ── Sections ────────────────────────────────────────────────────────── */
 .dg-detail-section {
-    margin-bottom: 22px;
+    margin-bottom: 20px;
 }
 
 .dg-detail-section-title {
@@ -306,11 +426,12 @@
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #64748b;
+    color: var(--dg-text-muted);
     margin-bottom: 10px;
     display: flex;
     align-items: center;
     gap: 8px;
+    transition: color 0.4s ease;
 }
 
 .dg-count {
@@ -320,18 +441,18 @@
     min-width: 20px;
     height: 20px;
     border-radius: 10px;
-    background: rgba(255, 255, 255, 0.07);
-    color: #94a3b8;
+    background: var(--dg-pill-bg);
+    color: var(--dg-text-muted);
     font-size: 11px;
     font-weight: 600;
     padding: 0 6px;
+    transition: background 0.3s ease;
 }
 
-/* Chip list */
 .dg-chip-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 5px;
 }
 
 .dg-chip {
@@ -340,23 +461,23 @@
     gap: 8px;
     padding: 8px 12px;
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.025);
-    color: #cbd5e1;
+    border: 1px solid var(--dg-chip-border);
+    border-left-width: 3px;
+    background: var(--dg-chip-bg);
+    color: var(--dg-text-secondary);
     font-family: inherit;
     font-size: 13px;
     text-align: left;
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.25s ease;
     word-break: break-word;
     outline: none;
 }
 
 .dg-chip:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.15);
-    color: #f1f5f9;
-    transform: translateX(3px);
+    background: var(--dg-chip-hover-bg);
+    color: var(--dg-text-primary);
+    transform: translateX(2px);
 }
 
 .dg-chip-dot {
@@ -368,69 +489,58 @@
 
 .dg-chip-empty {
     font-size: 13px;
-    color: #475569;
+    color: var(--dg-text-muted);
     font-style: italic;
     padding: 4px 0;
 }
 
 /* ═════════════════════════════════════════════════════════════════════
-   VIS.JS TOOLTIP OVERRIDES
+   VIS.JS TOOLTIP
    ═════════════════════════════════════════════════════════════════════ */
 .dg-network .vis-tooltip {
-    font-family: 'DM Sans', sans-serif !important;
-    background: rgba(15, 23, 42, 0.92) !important;
-    color: #e2e8f0 !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    font-family: 'Inter', sans-serif !important;
+    background: var(--dg-surface) !important;
+    color: var(--dg-text-primary) !important;
+    border: 1px solid var(--dg-border) !important;
     border-radius: 8px !important;
     padding: 8px 12px !important;
     font-size: 12px !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+    box-shadow: 0 4px 12px var(--dg-shadow-lg) !important;
     white-space: pre-line !important;
     max-width: 280px !important;
 }
 
-.dg-network canvas {
-    outline: none;
-}
-
 /* ═════════════════════════════════════════════════════════════════════
-   RESPONSIVE: Bottom sheet pattern on narrow viewports (< 768px)
+   RESPONSIVE — Bottom sheet on narrow screens
    ═════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
     .dg-topbar {
         flex-direction: column;
         align-items: flex-start;
         gap: 6px;
-        padding: 10px 14px;
+        padding: 8px 14px;
     }
-
-    .dg-title {
-        font-size: 15px;
-    }
-
-    .dg-topbar-right {
-        gap: 12px;
-    }
-
-    .dg-stat {
-        font-size: 12px;
-    }
-
-    .dg-stat-num {
-        font-size: 13px;
-    }
+    .dg-title { font-size: 14px; }
+    .dg-topbar-right { gap: 10px; }
+    .dg-stat { font-size: 12px; }
+    .dg-stat strong { font-size: 13px; }
 
     .dg-filters {
         padding: 8px 14px;
         gap: 6px;
     }
-
     .dg-pill {
         padding: 5px 12px;
         font-size: 12px;
     }
 
-    /* Detail panel becomes a bottom sheet on mobile */
+    .dg-legend {
+        gap: 12px;
+        padding: 6px 14px;
+    }
+    .dg-legend-item { font-size: 11px; }
+
+    /* Bottom sheet pattern */
     .dg-detail {
         top: auto;
         right: 0;
@@ -438,17 +548,15 @@
         left: 0;
         width: 100%;
         max-width: 100%;
-        max-height: 65vh;
+        max-height: 60vh;
         border-left: none;
-        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        border-top: 1px solid var(--dg-border);
         border-radius: 16px 16px 0 0;
-        box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 -4px 24px var(--dg-shadow-lg);
 
-        /* Slide up from bottom instead of from right */
         transform: translateY(110%);
         transition: transform 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     }
-
     .dg-detail-open {
         transform: translateY(0);
     }
