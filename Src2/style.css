@@ -1,0 +1,455 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Extension Dependency Graph – Dark Theme Styles
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Reset ───────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* ── Root container ──────────────────────────────────────────────────── */
+.dg-root {
+    width: 100%;
+    height: 100%;
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: #e2e8f0;
+    background-color: #070b12;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+
+    /* Dot-grid background pattern */
+    background-image:
+        radial-gradient(circle, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 24px 24px;
+}
+
+/* ── Custom scrollbar ────────────────────────────────────────────────── */
+.dg-root ::-webkit-scrollbar {
+    width: 6px;
+}
+
+.dg-root ::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.dg-root ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+.dg-root ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   TOP BAR
+   ═════════════════════════════════════════════════════════════════════ */
+.dg-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: rgba(255, 255, 255, 0.025);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    flex-shrink: 0;
+    z-index: 5;
+}
+
+.dg-topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.dg-logo-icon {
+    color: #3b82f6;
+    flex-shrink: 0;
+}
+
+.dg-title {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.dg-topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+
+.dg-stat {
+    font-size: 13px;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.dg-stat-num {
+    font-weight: 700;
+    color: #e2e8f0;
+    font-size: 15px;
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   FILTER PILLS
+   ═════════════════════════════════════════════════════════════════════ */
+.dg-filters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    z-index: 5;
+}
+
+.dg-pill {
+    padding: 6px 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    color: #cbd5e1;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    outline: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.dg-pill:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #f1f5f9;
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dg-pill-active {
+    background: rgba(59, 130, 246, 0.2);
+    color: #f1f5f9;
+    border-color: rgba(59, 130, 246, 0.45);
+    box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   MAIN CONTENT AREA
+   ═════════════════════════════════════════════════════════════════════ */
+.dg-main {
+    flex: 1;
+    display: flex;
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.dg-graph-wrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.dg-network {
+    width: 100%;
+    height: 100%;
+}
+
+/* Loading / hint overlay */
+.dg-graph-hint {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    color: #64748b;
+    pointer-events: none;
+    z-index: 2;
+    letter-spacing: 0.01em;
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   DETAIL PANEL (frosted glass, slides in from right)
+   ═════════════════════════════════════════════════════════════════════ */
+.dg-detail {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 360px;
+    max-width: 90vw;
+    z-index: 20;
+    padding: 24px 20px;
+    overflow-y: auto;
+
+    /* Frosted glass effect */
+    background: rgba(15, 23, 42, 0.82);
+    -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    backdrop-filter: blur(24px) saturate(1.4);
+    border-left: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.4);
+
+    /* Slide animation — hidden by default */
+    transform: translateX(110%);
+    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.dg-detail-open {
+    transform: translateX(0);
+}
+
+/* Close button */
+.dg-detail-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    color: #94a3b8;
+    font-size: 15px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    line-height: 1;
+    font-family: inherit;
+    outline: none;
+}
+
+.dg-detail-close:hover {
+    background: rgba(244, 63, 94, 0.2);
+    color: #f43f5e;
+    border-color: rgba(244, 63, 94, 0.4);
+}
+
+/* ── Detail header ───────────────────────────────────────────────────── */
+.dg-detail-header {
+    margin-bottom: 24px;
+    padding-right: 40px;
+}
+
+.dg-detail-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 10px;
+    line-height: 1.3;
+    word-break: break-word;
+}
+
+.dg-detail-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.dg-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.dg-badge-publisher {
+    background: rgba(255, 255, 255, 0.06);
+    color: #94a3b8;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dg-badge-version {
+    background: rgba(59, 130, 246, 0.15);
+    color: #93c5fd;
+    border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.dg-badge-type {
+    color: #fff;
+    border-radius: 6px;
+    padding: 3px 12px;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+/* ── Detail sections ─────────────────────────────────────────────────── */
+.dg-detail-section {
+    margin-bottom: 22px;
+}
+
+.dg-detail-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dg-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.07);
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 0 6px;
+}
+
+/* Chip list */
+.dg-chip-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dg-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.025);
+    color: #cbd5e1;
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    word-break: break-word;
+    outline: none;
+}
+
+.dg-chip:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: #f1f5f9;
+    transform: translateX(3px);
+}
+
+.dg-chip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.dg-chip-empty {
+    font-size: 13px;
+    color: #475569;
+    font-style: italic;
+    padding: 4px 0;
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   VIS.JS TOOLTIP OVERRIDES
+   ═════════════════════════════════════════════════════════════════════ */
+.dg-network .vis-tooltip {
+    font-family: 'DM Sans', sans-serif !important;
+    background: rgba(15, 23, 42, 0.92) !important;
+    color: #e2e8f0 !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+    font-size: 12px !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+    white-space: pre-line !important;
+    max-width: 280px !important;
+}
+
+.dg-network canvas {
+    outline: none;
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   RESPONSIVE: Bottom sheet pattern on narrow viewports (< 768px)
+   ═════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+    .dg-topbar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 10px 14px;
+    }
+
+    .dg-title {
+        font-size: 15px;
+    }
+
+    .dg-topbar-right {
+        gap: 12px;
+    }
+
+    .dg-stat {
+        font-size: 12px;
+    }
+
+    .dg-stat-num {
+        font-size: 13px;
+    }
+
+    .dg-filters {
+        padding: 8px 14px;
+        gap: 6px;
+    }
+
+    .dg-pill {
+        padding: 5px 12px;
+        font-size: 12px;
+    }
+
+    /* Detail panel becomes a bottom sheet on mobile */
+    .dg-detail {
+        top: auto;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        max-width: 100%;
+        max-height: 65vh;
+        border-left: none;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px 16px 0 0;
+        box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
+
+        /* Slide up from bottom instead of from right */
+        transform: translateY(110%);
+        transition: transform 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    }
+
+    .dg-detail-open {
+        transform: translateY(0);
+    }
+}
