@@ -1,32 +1,39 @@
 /**
  * @file startup.js
- * @description Bootstrap script for the Dependency Graph Control Add-in.
+ * @description Bootstrap for the Dependency Graph Control Add-in.
  *
- * Responsibilities:
- *  1. Build the full DOM scaffold (top bar, filter pills, graph canvas, detail panel).
- *  2. Load Google Fonts (DM Sans) from CDN.
- *  3. Load vis-network from unpkg CDN.
- *  4. Fire the OnReady() callback to AL once everything is initialised.
+ * This is the StartupScript — it runs automatically when BC creates the
+ * control add-in iframe. Responsibilities:
+ *   1. Build the complete DOM scaffold inside the controlAddIn element
+ *   2. Load Google Fonts (DM Sans) from CDN
+ *   3. Load vis-network from unpkg CDN
+ *   4. Fire the OnReady() event to AL via InvokeExtensibilityMethod
  *
- * This file runs as the StartupScript of the control add-in, so it executes
- * automatically when the iframe is created by the BC web client.
+ * IMPORTANT: There is no "OnControlReady" in BC. We fire our own "OnReady"
+ * event once all resources are loaded and the DOM is built.
  */
-
 (function () {
     "use strict";
 
-    // ── Helper: dynamically load a <script> from a URL ──────────────────
     /**
-     * Loads an external script by injecting a <script> tag.
-     * @param {string} url - The CDN URL to load.
+     * Dynamically loads an external script by injecting a <script> tag.
+     * @param {string} url - CDN URL to load
      * @returns {Promise<void>}
      */
     function loadScript(url) {
         return new Promise(function (resolve, reject) {
-            // Avoid double-loading if the script tag already exists
             var existing = document.querySelector('script[src="' + url + '"]');
             if (existing) {
-                resolve();
+                // If script tag exists, check if vis is available
+                if (typeof vis !== "undefined") {
+                    resolve();
+                    return;
+                }
+                // Wait for it to finish loading
+                existing.addEventListener("load", resolve);
+                existing.addEventListener("error", function () {
+                    reject(new Error("Failed to load: " + url));
+                });
                 return;
             }
             var s = document.createElement("script");
@@ -41,8 +48,8 @@
     }
 
     /**
-     * Loads a CSS stylesheet by injecting a <link> tag.
-     * @param {string} url - The CDN URL for the stylesheet.
+     * Loads a CSS stylesheet from CDN.
+     * @param {string} url
      */
     function loadCSS(url) {
         if (document.querySelector('link[href="' + url + '"]')) return;
@@ -52,20 +59,18 @@
         document.head.appendChild(link);
     }
 
-    // ── Build the DOM scaffold ──────────────────────────────────────────
     /**
-     * Constructs the entire UI skeleton inside the control add-in container.
+     * Constructs the full UI skeleton inside the controlAddIn container.
      */
     function buildDOM() {
         var container = document.getElementById("controlAddIn");
         if (!container) {
-            // Fallback: some BC versions use the body directly
             container = document.body;
         }
         container.className = "dg-root";
 
         container.innerHTML = [
-            // ── Top bar ─────────────────────────────────────────────────
+            // ── Top bar ─────────────────────────────────────────────
             '<div class="dg-topbar">',
             '  <div class="dg-topbar-left">',
             '    <svg class="dg-logo-icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2">',
@@ -81,7 +86,7 @@
             '  </div>',
             '</div>',
 
-            // ── Filter pills ────────────────────────────────────────────
+            // ── Filter pills ────────────────────────────────────────
             '<div class="dg-filters" id="dgFilters">',
             '  <button class="dg-pill dg-pill-active" data-type="all">All</button>',
             '  <button class="dg-pill" data-type="ms">Microsoft</button>',
@@ -90,23 +95,23 @@
             '  <button class="dg-pill" data-type="ext">Third Party</button>',
             '</div>',
 
-            // ── Main content area ───────────────────────────────────────
+            // ── Main content ────────────────────────────────────────
             '<div class="dg-main">',
             '  <div class="dg-graph-wrap" id="dgGraphWrap">',
             '    <div id="dgNetwork" class="dg-network"></div>',
             '    <div class="dg-graph-hint" id="dgGraphHint">Loading graph data…</div>',
             '  </div>',
 
-            // ── Detail panel (hidden by default) ────────────────────────
+            // ── Detail panel (hidden) ───────────────────────────────
             '  <div class="dg-detail" id="dgDetail">',
-            '    <button class="dg-detail-close" id="dgDetailClose" title="Close">✕</button>',
+            '    <button class="dg-detail-close" id="dgDetailClose" title="Close">&#x2715;</button>',
             '    <div class="dg-detail-header">',
-            '      <div class="dg-detail-name" id="dgDetailName">—</div>',
+            '      <div class="dg-detail-name" id="dgDetailName"></div>',
             '      <div class="dg-detail-meta">',
-            '        <span class="dg-badge dg-badge-publisher" id="dgDetailPublisher">—</span>',
-            '        <span class="dg-badge dg-badge-version" id="dgDetailVersion">—</span>',
+            '        <span class="dg-badge dg-badge-publisher" id="dgDetailPublisher"></span>',
+            '        <span class="dg-badge dg-badge-version" id="dgDetailVersion"></span>',
             '      </div>',
-            '      <span class="dg-badge dg-badge-type" id="dgDetailType">—</span>',
+            '      <span class="dg-badge dg-badge-type" id="dgDetailType"></span>',
             '    </div>',
             '    <div class="dg-detail-section">',
             '      <h3 class="dg-detail-section-title">Depends On <span class="dg-count" id="dgDepsCount">0</span></h3>',
@@ -121,16 +126,17 @@
         ].join("\n");
     }
 
-    // ── Initialise ──────────────────────────────────────────────────────
+    // ── Execute ─────────────────────────────────────────────────────
     buildDOM();
 
-    // Load DM Sans from Google Fonts
+    // Load Google Fonts
     loadCSS("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap");
 
-    // Load vis-network from CDN, then signal readiness to AL
+    // Load vis-network then signal AL that we are ready
     loadScript("https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js")
         .then(function () {
-            // Signal to AL that the control is ready to receive data
+            // Fire our custom OnReady event to AL
+            // This replaces the non-existent "OnControlReady" trigger
             Microsoft.Dynamics.NAV.InvokeExtensibilityMethod("OnReady", []);
         })
         .catch(function (err) {
