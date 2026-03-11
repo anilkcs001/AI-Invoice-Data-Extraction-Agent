@@ -1,563 +1,439 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   Extension Dependency Graph — Light/Dark Theme
-   Default: Light mode (.dg-light)
-   Toggle:  Dark mode (.dg-dark)
+   Extension Dependencies — Clean Two-Panel UI
+   Light mode default, Dark mode toggle
    ═══════════════════════════════════════════════════════════════════════ */
 
-*, *::before, *::after {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-/* ═════════════════════════════════════════════════════════════════════
-   CSS VARIABLES — Light & Dark
-   ═════════════════════════════════════════════════════════════════════ */
+/* ═══ CSS Variables ═══════════════════════════════════════════════════ */
 .dg-light {
-    --dg-bg: #f8fafc;
-    --dg-surface: #ffffff;
-    --dg-surface-hover: #f1f5f9;
-    --dg-border: #e2e8f0;
-    --dg-border-light: #f1f5f9;
-    --dg-text-primary: #0f172a;
-    --dg-text-secondary: #475569;
-    --dg-text-muted: #94a3b8;
-    --dg-shadow: rgba(0, 0, 0, 0.06);
-    --dg-shadow-lg: rgba(0, 0, 0, 0.1);
-    --dg-pill-bg: #f1f5f9;
-    --dg-pill-border: #e2e8f0;
-    --dg-pill-text: #475569;
-    --dg-pill-active-bg: #0f172a;
-    --dg-pill-active-text: #ffffff;
-    --dg-panel-bg: rgba(255, 255, 255, 0.92);
-    --dg-panel-blur: blur(20px) saturate(1.3);
-    --dg-chip-bg: #f8fafc;
-    --dg-chip-border: #e2e8f0;
-    --dg-chip-hover-bg: #f1f5f9;
-    --dg-hint-color: #94a3b8;
-    --dg-graph-bg: #ffffff;
-    --dg-dot-color: rgba(0, 0, 0, 0.04);
-    --dg-close-hover-bg: rgba(244, 63, 94, 0.1);
-    --dg-scrollbar-track: rgba(0, 0, 0, 0.02);
-    --dg-scrollbar-thumb: rgba(0, 0, 0, 0.08);
-    --dg-topbar-bg: #ffffff;
-    --dg-legend-bg: rgba(255, 255, 255, 0.9);
+    --bg: #f5f7fa;
+    --surface: #ffffff;
+    --surface-alt: #f8fafc;
+    --border: #e5e7eb;
+    --border-light: #f1f3f5;
+    --text-1: #111827;
+    --text-2: #4b5563;
+    --text-3: #9ca3af;
+    --hover: #f1f5f9;
+    --active-bg: #111827;
+    --active-text: #ffffff;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+    --input-bg: #f9fafb;
+    --input-border: #e5e7eb;
+    --order-line: #e5e7eb;
+    --step-bg: #f1f5f9;
+    --step-text: #6b7280;
+    --card-bg: #ffffff;
+    --card-border: #e5e7eb;
+    --root-bg: #fffbeb;
+    --root-border: #f59e0b;
+    --tab-bg: #f1f5f9;
+    --tab-active-bg: #ffffff;
+    --tab-text: #6b7280;
+    --tab-active-text: #111827;
+    --req-hover: #f8fafc;
+    --scrollbar-track: #f1f5f9;
+    --scrollbar-thumb: #d1d5db;
 }
 
 .dg-dark {
-    --dg-bg: #0f172a;
-    --dg-surface: #1e293b;
-    --dg-surface-hover: #334155;
-    --dg-border: rgba(255, 255, 255, 0.08);
-    --dg-border-light: rgba(255, 255, 255, 0.04);
-    --dg-text-primary: #f1f5f9;
-    --dg-text-secondary: #cbd5e1;
-    --dg-text-muted: #64748b;
-    --dg-shadow: rgba(0, 0, 0, 0.2);
-    --dg-shadow-lg: rgba(0, 0, 0, 0.3);
-    --dg-pill-bg: rgba(255, 255, 255, 0.06);
-    --dg-pill-border: rgba(255, 255, 255, 0.1);
-    --dg-pill-text: #94a3b8;
-    --dg-pill-active-bg: #f1f5f9;
-    --dg-pill-active-text: #0f172a;
-    --dg-panel-bg: rgba(15, 23, 42, 0.88);
-    --dg-panel-blur: blur(24px) saturate(1.4);
-    --dg-chip-bg: rgba(255, 255, 255, 0.04);
-    --dg-chip-border: rgba(255, 255, 255, 0.08);
-    --dg-chip-hover-bg: rgba(255, 255, 255, 0.08);
-    --dg-hint-color: #64748b;
-    --dg-graph-bg: #0f172a;
-    --dg-dot-color: rgba(255, 255, 255, 0.03);
-    --dg-close-hover-bg: rgba(244, 63, 94, 0.2);
-    --dg-scrollbar-track: rgba(255, 255, 255, 0.02);
-    --dg-scrollbar-thumb: rgba(255, 255, 255, 0.1);
-    --dg-topbar-bg: rgba(15, 23, 42, 0.95);
-    --dg-legend-bg: rgba(15, 23, 42, 0.9);
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface-alt: #1a2332;
+    --border: rgba(255,255,255,0.08);
+    --border-light: rgba(255,255,255,0.04);
+    --text-1: #f1f5f9;
+    --text-2: #94a3b8;
+    --text-3: #64748b;
+    --hover: rgba(255,255,255,0.06);
+    --active-bg: #f1f5f9;
+    --active-text: #0f172a;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.25);
+    --input-bg: rgba(255,255,255,0.04);
+    --input-border: rgba(255,255,255,0.08);
+    --order-line: rgba(255,255,255,0.1);
+    --step-bg: rgba(255,255,255,0.06);
+    --step-text: #64748b;
+    --card-bg: rgba(255,255,255,0.04);
+    --card-border: rgba(255,255,255,0.08);
+    --root-bg: rgba(245,158,11,0.12);
+    --root-border: #f59e0b;
+    --tab-bg: rgba(255,255,255,0.04);
+    --tab-active-bg: rgba(255,255,255,0.1);
+    --tab-text: #64748b;
+    --tab-active-text: #f1f5f9;
+    --req-hover: rgba(255,255,255,0.06);
+    --scrollbar-track: rgba(255,255,255,0.02);
+    --scrollbar-thumb: rgba(255,255,255,0.1);
 }
 
-/* ═════════════════════════════════════════════════════════════════════
-   ROOT
-   ═════════════════════════════════════════════════════════════════════ */
+/* ═══ Root ═══════════════════════════════════════════════════════════ */
 .dg-root {
-    width: 100%;
-    height: 100%;
+    width: 100%; height: 100%;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    color: var(--dg-text-primary);
-    background-color: var(--dg-bg);
-    display: flex;
-    flex-direction: column;
+    color: var(--text-1);
+    background: var(--bg);
+    display: flex; flex-direction: column;
     overflow: hidden;
-    position: relative;
-
-    background-image: radial-gradient(circle, var(--dg-dot-color) 1px, transparent 1px);
-    background-size: 20px 20px;
-    transition: background-color 0.4s ease, color 0.4s ease;
+    transition: background 0.35s ease, color 0.35s ease;
 }
 
-/* ── Scrollbar ───────────────────────────────────────────────────────── */
+/* Scrollbar */
 .dg-root ::-webkit-scrollbar { width: 5px; }
-.dg-root ::-webkit-scrollbar-track { background: var(--dg-scrollbar-track); }
-.dg-root ::-webkit-scrollbar-thumb { background: var(--dg-scrollbar-thumb); border-radius: 3px; }
+.dg-root ::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+.dg-root ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
 
-/* ═════════════════════════════════════════════════════════════════════
-   TOP BAR
-   ═════════════════════════════════════════════════════════════════════ */
+/* ═══ Top Bar ═══════════════════════════════════════════════════════ */
 .dg-topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 20px;
-    background: var(--dg-topbar-bg);
-    border-bottom: 1px solid var(--dg-border);
-    flex-shrink: 0;
-    z-index: 10;
-    box-shadow: 0 1px 3px var(--dg-shadow);
-    transition: background 0.4s ease, border-color 0.4s ease;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0; z-index: 10;
+    box-shadow: var(--shadow-sm);
+    transition: background 0.35s, border-color 0.35s;
 }
+.dg-topbar-left { display: flex; align-items: center; gap: 8px; }
+.dg-logo-icon { color: #3b82f6; }
+.dg-title { font-size: 15px; font-weight: 700; color: var(--text-1); transition: color 0.35s; }
+.dg-topbar-right { display: flex; align-items: center; gap: 12px; }
+.dg-stat { font-size: 13px; color: var(--text-3); gap: 3px; display: flex; align-items: center; }
+.dg-stat strong { color: var(--text-1); font-size: 14px; transition: color 0.35s; }
 
-.dg-topbar-left {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.dg-logo-icon {
-    color: #3b82f6;
-    flex-shrink: 0;
-}
-
-.dg-title {
-    font-size: 16px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    color: var(--dg-text-primary);
-    transition: color 0.4s ease;
-}
-
-.dg-topbar-right {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-}
-
-.dg-stat {
-    font-size: 13px;
-    color: var(--dg-text-muted);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    transition: color 0.4s ease;
-}
-
-.dg-stat strong {
-    font-weight: 700;
-    color: var(--dg-text-primary);
-    font-size: 14px;
-    transition: color 0.4s ease;
-}
-
-/* ── Theme toggle button ─────────────────────────────────────────────── */
 .dg-theme-btn {
-    width: 34px;
-    height: 34px;
-    border-radius: 8px;
-    border: 1px solid var(--dg-border);
-    background: var(--dg-pill-bg);
-    color: var(--dg-text-secondary);
-    font-size: 18px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.3s ease;
-    outline: none;
+    width: 32px; height: 32px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface-alt);
+    color: var(--text-2); font-size: 16px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.25s; outline: none;
+}
+.dg-theme-btn:hover { border-color: #3b82f6; color: #3b82f6; }
+
+/* ═══ Body — Two Panel Layout ═══════════════════════════════════════ */
+.dg-body {
+    flex: 1; display: flex; overflow: hidden; min-height: 0;
 }
 
-.dg-theme-btn:hover {
-    background: var(--dg-surface-hover);
-    border-color: #3b82f6;
-    color: #3b82f6;
+/* ═══ LEFT: Extension List Panel ════════════════════════════════════ */
+.dg-list-panel {
+    width: 360px; min-width: 280px; max-width: 420px;
+    display: flex; flex-direction: column;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    transition: background 0.35s, border-color 0.35s;
 }
 
-.dg-theme-icon {
-    line-height: 1;
+/* Search */
+.dg-search-wrap {
+    padding: 12px 14px 8px;
+    position: relative; flex-shrink: 0;
+}
+.dg-search-icon {
+    position: absolute; left: 24px; top: 50%; transform: translateY(-50%);
+    color: var(--text-3); pointer-events: none;
+}
+.dg-search {
+    width: 100%; padding: 8px 12px 8px 34px;
+    border: 1px solid var(--input-border); border-radius: 8px;
+    background: var(--input-bg); color: var(--text-1);
+    font-family: inherit; font-size: 13px; outline: none;
+    transition: border-color 0.25s, background 0.25s;
+}
+.dg-search:focus { border-color: #3b82f6; }
+.dg-search::placeholder { color: var(--text-3); }
+
+/* Filter row */
+.dg-filter-row {
+    display: flex; gap: 4px; padding: 4px 14px 10px;
+    flex-shrink: 0; flex-wrap: wrap;
+}
+.dg-filter-btn {
+    padding: 4px 10px; border-radius: 6px;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--text-3); font-family: inherit; font-size: 11px;
+    font-weight: 500; cursor: pointer; transition: all 0.2s; outline: none;
+}
+.dg-filter-btn:hover { background: var(--hover); color: var(--text-2); }
+.dg-filter-active {
+    background: var(--active-bg); color: var(--active-text);
+    border-color: var(--active-bg); font-weight: 600;
 }
 
-/* ═════════════════════════════════════════════════════════════════════
-   FILTER PILLS
-   ═════════════════════════════════════════════════════════════════════ */
-.dg-filters {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 20px;
+/* Extension list */
+.dg-ext-list {
+    flex: 1; overflow-y: auto; padding: 0 8px 8px;
+}
+.dg-ext-list-empty {
+    padding: 40px 20px; text-align: center;
+    color: var(--text-3); font-size: 13px;
+}
+
+.dg-ext-item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 10px 12px; margin-bottom: 2px;
+    border: 1px solid transparent; border-radius: 8px;
+    background: transparent; color: var(--text-1);
+    font-family: inherit; text-align: left; cursor: pointer;
+    transition: all 0.2s; outline: none;
+}
+.dg-ext-item:hover {
+    background: var(--hover); border-color: var(--border);
+}
+.dg-ext-item-active {
+    background: var(--hover); border-color: #3b82f6;
+    box-shadow: inset 3px 0 0 #3b82f6;
+}
+.dg-ext-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.dg-ext-info { flex: 1; min-width: 0; }
+.dg-ext-name {
+    font-size: 13px; font-weight: 600; color: var(--text-1);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: color 0.35s;
+}
+.dg-ext-sub {
+    font-size: 11px; color: var(--text-3); margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dg-ext-badges { display: flex; gap: 4px; flex-shrink: 0; }
+.dg-ext-badge {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px;
+    background: var(--step-bg); color: var(--text-3); font-weight: 500;
+    white-space: nowrap;
+}
+.dg-ext-badge-req { background: rgba(59,130,246,0.08); color: #3b82f6; }
+
+/* ═══ RIGHT: Detail Panel ═══════════════════════════════════════════ */
+.dg-detail-panel {
+    flex: 1; display: flex; flex-direction: column;
+    overflow: hidden; min-width: 0;
+    background: var(--bg);
+    transition: background 0.35s;
+}
+
+/* Empty state */
+.dg-empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px;
+    color: var(--text-3); padding: 40px;
+}
+.dg-empty-state p { font-size: 14px; text-align: center; max-width: 280px; line-height: 1.6; }
+
+/* Dep view container */
+.dg-dep-view {
+    flex: 1; display: flex; flex-direction: column;
+    overflow: hidden; min-height: 0;
+}
+
+/* Header */
+.dg-dep-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
     flex-shrink: 0;
-    flex-wrap: wrap;
-    z-index: 5;
-    background: var(--dg-bg);
-    transition: background 0.4s ease;
+    transition: background 0.35s, border-color 0.35s;
+}
+.dg-dep-name {
+    font-size: 17px; font-weight: 700; color: var(--text-1);
+    margin-bottom: 8px; transition: color 0.35s;
+}
+.dg-dep-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.dg-tag {
+    display: inline-flex; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 500;
+}
+.dg-tag-publisher { background: var(--step-bg); color: var(--text-2); }
+.dg-tag-version { background: rgba(59,130,246,0.08); color: #3b82f6; }
+.dg-tag-type {
+    color: #fff; font-weight: 600; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.04em;
 }
 
-.dg-pill {
-    padding: 6px 16px;
-    border-radius: 8px;
-    border: 1px solid var(--dg-pill-border);
-    background: var(--dg-pill-bg);
-    color: var(--dg-pill-text);
-    font-family: inherit;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.25s ease;
-    outline: none;
-    -webkit-user-select: none;
-    user-select: none;
+/* ═══ Tab Bar ═══════════════════════════════════════════════════════ */
+.dg-tab-bar {
+    display: flex; gap: 2px; padding: 8px 20px 0;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    transition: background 0.35s, border-color 0.35s;
 }
-
-.dg-pill:hover {
-    background: var(--dg-surface-hover);
-    border-color: var(--dg-text-muted);
-    color: var(--dg-text-primary);
+.dg-tab {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border: none; border-bottom: 2px solid transparent;
+    background: transparent; color: var(--tab-text);
+    font-family: inherit; font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: all 0.2s; outline: none;
+    margin-bottom: -1px;
 }
-
-/* Active state — "All" pill uses neutral dark/light */
-.dg-pill-active {
-    background: var(--dg-pill-active-bg);
-    color: var(--dg-pill-active-text);
-    border-color: var(--dg-pill-active-bg);
+.dg-tab:hover { color: var(--text-1); }
+.dg-tab-active {
+    color: var(--tab-active-text);
+    border-bottom-color: #3b82f6;
     font-weight: 600;
 }
+.dg-tab svg { flex-shrink: 0; }
 
-/* When JS sets inline styles for colored pills, those override these defaults */
-
-/* ═════════════════════════════════════════════════════════════════════
-   MAIN CONTENT
-   ═════════════════════════════════════════════════════════════════════ */
-.dg-main {
-    flex: 1;
-    display: flex;
-    position: relative;
-    overflow: hidden;
+/* ═══ Tab Content ═══════════════════════════════════════════════════ */
+.dg-tab-content {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
     min-height: 0;
 }
 
-.dg-graph-wrap {
-    flex: 1;
-    position: relative;
-    overflow: hidden;
+/* ═══ Install Order ════════════════════════════════════════════════ */
+.dg-order-info {
+    font-size: 13px; color: var(--text-2); margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+.dg-order-list { display: flex; flex-direction: column; }
+
+.dg-order-item {
+    display: flex; align-items: stretch; gap: 12px;
+    position: relative; cursor: pointer;
+    padding: 0 0 0 0;
+    transition: opacity 0.2s;
+}
+.dg-order-item:hover .dg-order-card { border-color: #3b82f6; }
+
+/* Step number circle */
+.dg-order-step {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--step-bg); color: var(--step-text);
+    font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; z-index: 2;
+    margin-top: 10px;
+    transition: background 0.35s;
+}
+.dg-order-item-root .dg-order-step {
+    background: #f59e0b; color: #fff;
+}
+
+/* Connecting vertical line */
+.dg-order-line {
+    position: absolute;
+    left: 13px; top: 38px; bottom: -2px;
+    width: 2px;
+    background: var(--order-line);
+    z-index: 1;
+    transition: background 0.35s;
+}
+.dg-order-line-last { display: none; }
+
+/* Card */
+.dg-order-card {
+    flex: 1; padding: 10px 14px;
+    border: 1px solid var(--card-border);
+    border-radius: 8px; margin-bottom: 8px;
+    background: var(--card-bg);
+    transition: all 0.2s;
     min-width: 0;
-    background: var(--dg-graph-bg);
-    transition: background 0.4s ease;
 }
-
-.dg-network {
-    width: 100%;
-    height: 100%;
+.dg-order-item-root .dg-order-card {
+    background: var(--root-bg);
+    border-color: var(--root-border);
 }
-
-.dg-network canvas {
-    outline: none;
+.dg-order-card-top {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 4px;
 }
-
-.dg-graph-hint {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    color: var(--dg-hint-color);
-    pointer-events: none;
-    z-index: 2;
-    transition: color 0.4s ease;
+.dg-order-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
 }
-
-/* ═════════════════════════════════════════════════════════════════════
-   LEGEND BAR (bottom)
-   ═════════════════════════════════════════════════════════════════════ */
-.dg-legend {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 20px;
-    padding: 8px 20px;
-    background: var(--dg-legend-bg);
-    border-top: 1px solid var(--dg-border);
-    flex-shrink: 0;
-    z-index: 5;
-    transition: background 0.4s ease, border-color 0.4s ease;
+.dg-order-name {
+    font-size: 13px; font-weight: 600; color: var(--text-1);
+    flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: color 0.35s;
 }
-
-.dg-legend-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--dg-text-muted);
-    font-weight: 500;
-}
-
-.dg-legend-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 3px;
+.dg-order-type {
+    font-size: 9px; font-weight: 600; color: #fff;
+    padding: 2px 6px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: 0.04em;
     flex-shrink: 0;
 }
-
-/* ═════════════════════════════════════════════════════════════════════
-   DETAIL PANEL — slides in from right
-   ═════════════════════════════════════════════════════════════════════ */
-.dg-detail {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 340px;
-    max-width: 90vw;
-    z-index: 20;
-    padding: 24px 20px;
-    overflow-y: auto;
-
-    background: var(--dg-panel-bg);
-    -webkit-backdrop-filter: var(--dg-panel-blur);
-    backdrop-filter: var(--dg-panel-blur);
-    border-left: 1px solid var(--dg-border);
-    box-shadow: -4px 0 24px var(--dg-shadow-lg);
-
-    transform: translateX(110%);
-    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94),
-                background 0.4s ease,
-                border-color 0.4s ease;
+.dg-order-card-bottom {
+    display: flex; gap: 10px;
+    font-size: 11px; color: var(--text-3);
+    padding-left: 16px;
+}
+.dg-order-root-label {
+    font-size: 11px; color: #f59e0b; font-weight: 600;
+    margin-top: 4px; padding-left: 16px;
 }
 
-.dg-detail-open {
-    transform: translateX(0);
-}
-
-.dg-detail-close {
-    position: absolute;
-    top: 14px;
-    right: 14px;
-    width: 30px;
-    height: 30px;
+/* ═══ Tree Graph ═══════════════════════════════════════════════════ */
+.dg-tree-graph {
+    width: 100%; height: 100%; min-height: 300px;
     border-radius: 8px;
-    border: 1px solid var(--dg-border);
-    background: var(--dg-pill-bg);
-    color: var(--dg-text-muted);
-    font-size: 14px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.25s ease;
-    font-family: inherit;
-    outline: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    transition: background 0.35s, border-color 0.35s;
 }
+.dg-tree-graph canvas { outline: none; }
 
-.dg-detail-close:hover {
-    background: var(--dg-close-hover-bg);
-    color: #f43f5e;
-    border-color: #f43f5e;
-}
-
-/* ── Header ──────────────────────────────────────────────────────────── */
-.dg-detail-header {
-    margin-bottom: 22px;
-    padding-right: 36px;
-}
-
-.dg-detail-name {
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--dg-text-primary);
-    margin-bottom: 10px;
-    line-height: 1.3;
-    word-break: break-word;
-    transition: color 0.4s ease;
-}
-
-.dg-detail-meta {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
-}
-
-.dg-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 3px 10px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 500;
-    transition: background 0.3s ease, color 0.3s ease;
-}
-
-.dg-badge-publisher {
-    background: var(--dg-pill-bg);
-    color: var(--dg-text-secondary);
-    border: 1px solid var(--dg-border);
-}
-
-.dg-badge-version {
-    background: rgba(59, 130, 246, 0.1);
-    color: #3b82f6;
-    border: 1px solid rgba(59, 130, 246, 0.2);
-}
-
-.dg-badge-type {
-    color: #fff;
-    border-radius: 6px;
-    padding: 3px 12px;
-    font-weight: 600;
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-
-/* ── Sections ────────────────────────────────────────────────────────── */
-.dg-detail-section {
-    margin-bottom: 20px;
-}
-
-.dg-detail-section-title {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--dg-text-muted);
-    margin-bottom: 10px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    transition: color 0.4s ease;
-}
-
-.dg-count {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 20px;
-    height: 20px;
-    border-radius: 10px;
-    background: var(--dg-pill-bg);
-    color: var(--dg-text-muted);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 0 6px;
-    transition: background 0.3s ease;
-}
-
-.dg-chip-list {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
-
-.dg-chip {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border-radius: 8px;
-    border: 1px solid var(--dg-chip-border);
-    border-left-width: 3px;
-    background: var(--dg-chip-bg);
-    color: var(--dg-text-secondary);
-    font-family: inherit;
-    font-size: 13px;
-    text-align: left;
-    cursor: pointer;
-    transition: all 0.25s ease;
-    word-break: break-word;
-    outline: none;
-}
-
-.dg-chip:hover {
-    background: var(--dg-chip-hover-bg);
-    color: var(--dg-text-primary);
-    transform: translateX(2px);
-}
-
-.dg-chip-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-
-.dg-chip-empty {
-    font-size: 13px;
-    color: var(--dg-text-muted);
-    font-style: italic;
-    padding: 4px 0;
-}
-
-/* ═════════════════════════════════════════════════════════════════════
-   VIS.JS TOOLTIP
-   ═════════════════════════════════════════════════════════════════════ */
-.dg-network .vis-tooltip {
+/* Vis tooltip */
+.dg-tree-graph .vis-tooltip {
     font-family: 'Inter', sans-serif !important;
-    background: var(--dg-surface) !important;
-    color: var(--dg-text-primary) !important;
-    border: 1px solid var(--dg-border) !important;
-    border-radius: 8px !important;
-    padding: 8px 12px !important;
-    font-size: 12px !important;
-    box-shadow: 0 4px 12px var(--dg-shadow-lg) !important;
+    background: var(--surface) !important;
+    color: var(--text-1) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 6px !important;
+    padding: 6px 10px !important;
+    font-size: 11px !important;
+    box-shadow: var(--shadow-md) !important;
     white-space: pre-line !important;
-    max-width: 280px !important;
 }
 
-/* ═════════════════════════════════════════════════════════════════════
-   RESPONSIVE — Bottom sheet on narrow screens
-   ═════════════════════════════════════════════════════════════════════ */
+/* ═══ Required By ══════════════════════════════════════════════════ */
+.dg-req-item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 10px 12px; margin-bottom: 4px;
+    border: 1px solid var(--card-border); border-radius: 8px;
+    background: var(--card-bg); color: var(--text-1);
+    font-family: inherit; text-align: left; cursor: pointer;
+    transition: all 0.2s; outline: none;
+}
+.dg-req-item:hover {
+    background: var(--req-hover); border-color: #3b82f6;
+}
+.dg-req-info { flex: 1; min-width: 0; }
+.dg-req-name {
+    font-size: 13px; font-weight: 600; color: var(--text-1);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dg-req-sub {
+    font-size: 11px; color: var(--text-3); margin-top: 1px;
+}
+
+/* ═══ Responsive ═══════════════════════════════════════════════════ */
 @media (max-width: 768px) {
-    .dg-topbar {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 6px;
-        padding: 8px 14px;
+    .dg-body { flex-direction: column; }
+
+    .dg-list-panel {
+        width: 100%; max-width: 100%; min-width: 0;
+        max-height: 40vh;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
     }
+
+    .dg-topbar { padding: 8px 12px; }
     .dg-title { font-size: 14px; }
-    .dg-topbar-right { gap: 10px; }
-    .dg-stat { font-size: 12px; }
-    .dg-stat strong { font-size: 13px; }
+    .dg-search-wrap { padding: 8px 10px 6px; }
+    .dg-filter-row { padding: 2px 10px 8px; }
+    .dg-dep-header { padding: 12px 14px 10px; }
+    .dg-tab-bar { padding: 6px 14px 0; }
+    .dg-tab-content { padding: 12px 14px; }
+    .dg-tab { font-size: 11px; padding: 6px 10px; }
+}
 
-    .dg-filters {
-        padding: 8px 14px;
-        gap: 6px;
-    }
-    .dg-pill {
-        padding: 5px 12px;
-        font-size: 12px;
-    }
-
-    .dg-legend {
-        gap: 12px;
-        padding: 6px 14px;
-    }
-    .dg-legend-item { font-size: 11px; }
-
-    /* Bottom sheet pattern */
-    .dg-detail {
-        top: auto;
-        right: 0;
-        bottom: 0;
-        left: 0;
-        width: 100%;
-        max-width: 100%;
-        max-height: 60vh;
-        border-left: none;
-        border-top: 1px solid var(--dg-border);
-        border-radius: 16px 16px 0 0;
-        box-shadow: 0 -4px 24px var(--dg-shadow-lg);
-
-        transform: translateY(110%);
-        transition: transform 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-    }
-    .dg-detail-open {
-        transform: translateY(0);
-    }
+@media (max-width: 480px) {
+    .dg-list-panel { max-height: 35vh; }
+    .dg-ext-item { padding: 8px 10px; }
+    .dg-ext-name { font-size: 12px; }
+    .dg-ext-badges { display: none; }
 }
