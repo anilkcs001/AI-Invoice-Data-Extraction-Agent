@@ -1,6 +1,14 @@
 /// <summary>
 /// Card page hosting the Extension Dependency Graph control add-in.
-/// Provides a visual, interactive view of all published extensions and their dependencies.
+///
+/// IMPORTANT NOTES on Control Add-in trigger wiring:
+///   - There is NO "OnControlReady" trigger in BC Control Add-ins.
+///   - Instead, the control add-in defines an "event OnReady()" which JS fires
+///     via Microsoft.Dynamics.NAV.InvokeExtensibilityMethod("OnReady", []).
+///   - On this page, we wire the trigger as: trigger OnReady() — matching the
+///     event name defined in the controladdin object.
+///   - The "trigger" keyword on a usercontrol maps to EVENTS (JS → AL direction),
+///     not to procedures (AL → JS direction).
 /// </summary>
 page 70100 "Ext. Dependency Graph"
 {
@@ -8,7 +16,6 @@ page 70100 "Ext. Dependency Graph"
     Caption = 'Extension Dependency Graph';
     UsageCategory = Administration;
     ApplicationArea = All;
-    // Prevent the standard BC banner/factboxes from cluttering the view
     Editable = false;
     LinksAllowed = false;
     ShowFilter = false;
@@ -20,32 +27,30 @@ page 70100 "Ext. Dependency Graph"
     {
         area(Content)
         {
-            // The control add-in fills the entire content area.
-            // VerticalStretch + HorizontalStretch ensure it resizes with the page.
+            // The usercontrol hosts the DependencyGraph control add-in.
+            // Triggers here correspond to the EVENTS defined in the controladdin object.
             usercontrol(GraphControl; DependencyGraph)
             {
                 ApplicationArea = All;
 
-                /// <summary>
-                /// Fires when the JavaScript layer has finished loading vis.js
-                /// and building the DOM. We then send the graph data.
-                /// </summary>
-                trigger OnControlReady()
+                // ── This trigger fires when JS calls InvokeExtensibilityMethod("OnReady", []) ──
+                // It is our signal that vis.js is loaded and the DOM is ready.
+                // We respond by building the JSON payload and sending it to JS.
+                trigger OnReady()
                 begin
+                    IsControlReady := true;
                     LoadGraphData();
                 end;
 
-                /// <summary>
-                /// Fires when the user clicks a node in the graph.
-                /// Can be used for logging, navigation, or additional actions.
-                /// </summary>
+                // ── This trigger fires when the user clicks a node in the graph ──
+                // JS calls InvokeExtensibilityMethod("OnNodeSelected", [id, name, pub, ver])
                 trigger OnNodeSelected(AppId: Text; AppName: Text; Publisher: Text; Version: Text)
                 begin
-                    // Optional: track selected extension or perform additional actions.
-                    // For now, the detail panel in JS handles the display.
-                    // Example: Message('Selected: %1 by %2 (v%3)', AppName, Publisher, Version);
+                    // Store selected extension info for potential use by other actions
                     CurrSelectedAppId := AppId;
                     CurrSelectedAppName := AppName;
+                    CurrSelectedPublisher := Publisher;
+                    CurrSelectedVersion := Version;
                 end;
             }
         }
@@ -55,7 +60,7 @@ page 70100 "Ext. Dependency Graph"
     {
         area(Processing)
         {
-            action(Refresh)
+            action(RefreshGraph)
             {
                 ApplicationArea = All;
                 Caption = 'Refresh Graph';
@@ -68,6 +73,10 @@ page 70100 "Ext. Dependency Graph"
 
                 trigger OnAction()
                 begin
+                    if not IsControlReady then begin
+                        Message('The graph control is still loading. Please wait a moment and try again.');
+                        exit;
+                    end;
                     LoadGraphData();
                 end;
             }
@@ -76,7 +85,7 @@ page 70100 "Ext. Dependency Graph"
             {
                 ApplicationArea = All;
                 Caption = 'Export JSON';
-                ToolTip = 'Download the raw JSON dependency graph data for debugging.';
+                ToolTip = 'Download the raw JSON dependency graph payload for debugging or analysis.';
                 Image = Export;
                 Promoted = true;
                 PromotedCategory = Process;
@@ -87,8 +96,8 @@ page 70100 "Ext. Dependency Graph"
                     DepGraphMgmt: Codeunit "Dependency Graph Mgmt";
                     JsonPayload: Text;
                     TempBlob: Codeunit "Temp Blob";
-                    OutStream: OutStream;
-                    InStream: InStream;
+                    OutStr: OutStream;
+                    InStr: InStream;
                     FileName: Text;
                 begin
                     DepGraphMgmt.GetDependencyGraphJson(JsonPayload);
@@ -98,27 +107,45 @@ page 70100 "Ext. Dependency Graph"
                         exit;
                     end;
 
-                    TempBlob.CreateOutStream(OutStream, TextEncoding::UTF8);
-                    OutStream.WriteText(JsonPayload);
-                    TempBlob.CreateInStream(InStream, TextEncoding::UTF8);
-                    FileName := 'DependencyGraph_' + Format(CurrentDateTime, 0, '<Year4><Month,2><Day,2>_<Hours24><Minutes,2>') + '.json';
-                    DownloadFromStream(InStream, 'Export Dependency Graph', '', 'JSON Files (*.json)|*.json', FileName);
+                    TempBlob.CreateOutStream(OutStr, TextEncoding::UTF8);
+                    OutStr.WriteText(JsonPayload);
+                    TempBlob.CreateInStream(InStr, TextEncoding::UTF8);
+
+                    FileName := 'DependencyGraph_' +
+                        Format(Today, 0, '<Year4><Month,2><Day,2>') + '_' +
+                        Format(Time, 0, '<Hours24,2><Minutes,2><Seconds,2>') + '.json';
+
+                    DownloadFromStream(InStr, 'Export Dependency Graph JSON', '', 'JSON Files (*.json)|*.json', FileName);
                 end;
             }
         }
     }
 
     var
-        /// <summary>Cached JSON payload to avoid rebuilding on repeated calls within the same session.</summary>
+        /// <summary>
+        /// Cached JSON payload. Rebuilt each time LoadGraphData() is called.
+        /// </summary>
         GraphJsonPayload: Text;
-        /// <summary>Tracks the currently selected App ID (set by OnNodeSelected callback).</summary>
+
+        /// <summary>
+        /// Tracks whether the JS control add-in has fired OnReady.
+        /// Prevents calling LoadGraph before the control is initialised.
+        /// </summary>
+        IsControlReady: Boolean;
+
+        /// <summary>Currently selected extension details (set by OnNodeSelected).</summary>
         CurrSelectedAppId: Text;
-        /// <summary>Tracks the currently selected App Name.</summary>
         CurrSelectedAppName: Text;
+        CurrSelectedPublisher: Text;
+        CurrSelectedVersion: Text;
 
     /// <summary>
-    /// Reads extension data via the management codeunit and sends it to the control add-in.
-    /// Includes error handling so the user sees a friendly message if something goes wrong.
+    /// Reads extension data via the management codeunit and sends the JSON
+    /// payload to the control add-in for rendering.
+    ///
+    /// Uses TryFunction wrapper for error safety — if the system tables are
+    /// inaccessible or any unexpected error occurs, the user sees a friendly
+    /// message instead of an unhandled error dialog.
     /// </summary>
     local procedure LoadGraphData()
     var
@@ -126,25 +153,31 @@ page 70100 "Ext. Dependency Graph"
     begin
         Clear(GraphJsonPayload);
 
-        // Build JSON from system tables. Wrap in error handling for robustness.
         if not TryBuildGraphJson(DepGraphMgmt, GraphJsonPayload) then begin
-            Message('An error occurred while reading extension data.\Please try refreshing the page.\Error: %1', GetLastErrorText());
+            Message(
+                'An error occurred while reading extension data.\\' +
+                'Please try again or contact your administrator.\\\\' +
+                'Error details: %1',
+                GetLastErrorText());
             exit;
         end;
 
         if GraphJsonPayload = '' then begin
-            Message('No published extensions found. The graph will be empty.');
+            Message('No installed extensions were found. The graph will be empty.');
             exit;
         end;
 
-        // Send data to the JavaScript control add-in for rendering
+        // Send the JSON payload to the JavaScript control add-in.
+        // This calls the "procedure LoadGraph(Text)" defined in the controladdin,
+        // which maps to window.LoadGraph(jsonPayload) in app.js.
         CurrPage.GraphControl.LoadGraph(GraphJsonPayload);
     end;
 
     /// <summary>
-    /// Wrapper using [TryFunction] to safely attempt JSON building.
-    /// If the system tables are inaccessible or an unexpected error occurs,
-    /// this returns false instead of raising an unhandled error.
+    /// TryFunction wrapper around the codeunit call.
+    /// If GetDependencyGraphJson raises any error (e.g., permission denied
+    /// on system tables, unexpected data), this catches it and returns false
+    /// so the caller can show a user-friendly message.
     /// </summary>
     [TryFunction]
     local procedure TryBuildGraphJson(var DepGraphMgmt: Codeunit "Dependency Graph Mgmt"; var Payload: Text)
