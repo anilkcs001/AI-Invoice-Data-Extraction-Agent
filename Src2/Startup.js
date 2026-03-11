@@ -1,56 +1,29 @@
 /**
  * @file startup.js
- * @description Bootstrap for the Dependency Graph Control Add-in.
- *
- * This is the StartupScript — it runs automatically when BC creates the
- * control add-in iframe. Responsibilities:
- *   1. Build the complete DOM scaffold inside the controlAddIn element
- *   2. Load Google Fonts (DM Sans) from CDN
- *   3. Load vis-network from unpkg CDN
- *   4. Fire the OnReady() event to AL via InvokeExtensibilityMethod
- *
- * IMPORTANT: There is no "OnControlReady" in BC. We fire our own "OnReady"
- * event once all resources are loaded and the DOM is built.
+ * @description Bootstrap — builds DOM, loads vis.js, fires OnReady to AL.
+ * No physics. Static hierarchical flowchart layout.
  */
 (function () {
     "use strict";
 
-    /**
-     * Dynamically loads an external script by injecting a <script> tag.
-     * @param {string} url - CDN URL to load
-     * @returns {Promise<void>}
-     */
     function loadScript(url) {
         return new Promise(function (resolve, reject) {
             var existing = document.querySelector('script[src="' + url + '"]');
             if (existing) {
-                // If script tag exists, check if vis is available
-                if (typeof vis !== "undefined") {
-                    resolve();
-                    return;
-                }
-                // Wait for it to finish loading
+                if (typeof vis !== "undefined") { resolve(); return; }
                 existing.addEventListener("load", resolve);
-                existing.addEventListener("error", function () {
-                    reject(new Error("Failed to load: " + url));
-                });
+                existing.addEventListener("error", function () { reject(new Error("Failed: " + url)); });
                 return;
             }
             var s = document.createElement("script");
             s.src = url;
             s.async = true;
             s.onload = resolve;
-            s.onerror = function () {
-                reject(new Error("Failed to load script: " + url));
-            };
+            s.onerror = function () { reject(new Error("Failed to load: " + url)); };
             document.head.appendChild(s);
         });
     }
 
-    /**
-     * Loads a CSS stylesheet from CDN.
-     * @param {string} url
-     */
     function loadCSS(url) {
         if (document.querySelector('link[href="' + url + '"]')) return;
         var link = document.createElement("link");
@@ -59,21 +32,15 @@
         document.head.appendChild(link);
     }
 
-    /**
-     * Constructs the full UI skeleton inside the controlAddIn container.
-     */
     function buildDOM() {
         var container = document.getElementById("controlAddIn");
-        if (!container) {
-            container = document.body;
-        }
-        container.className = "dg-root";
+        if (!container) container = document.body;
+        container.className = "dg-root dg-light";
 
         container.innerHTML = [
-            // ── Top bar ─────────────────────────────────────────────
             '<div class="dg-topbar">',
             '  <div class="dg-topbar-left">',
-            '    <svg class="dg-logo-icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2">',
+            '    <svg class="dg-logo-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">',
             '      <circle cx="5" cy="6" r="2"/><circle cx="12" cy="18" r="2"/>',
             '      <circle cx="19" cy="6" r="2"/><line x1="5" y1="8" x2="12" y2="16"/>',
             '      <line x1="19" y1="8" x2="12" y2="16"/>',
@@ -81,12 +48,14 @@
             '    <h1 class="dg-title">Extension Dependency Graph</h1>',
             '  </div>',
             '  <div class="dg-topbar-right">',
-            '    <span class="dg-stat" id="dgStatNodes"><span class="dg-stat-num">0</span> Extensions</span>',
-            '    <span class="dg-stat" id="dgStatEdges"><span class="dg-stat-num">0</span> Dependencies</span>',
+            '    <span class="dg-stat" id="dgStatNodes"><strong id="dgStatNodesNum">0</strong> Extensions</span>',
+            '    <span class="dg-stat" id="dgStatEdges"><strong id="dgStatEdgesNum">0</strong> Dependencies</span>',
+            '    <button class="dg-theme-btn" id="dgThemeToggle" title="Toggle Dark/Light Mode">',
+            '      <span class="dg-theme-icon" id="dgThemeIcon">&#9790;</span>',
+            '    </button>',
             '  </div>',
             '</div>',
 
-            // ── Filter pills ────────────────────────────────────────
             '<div class="dg-filters" id="dgFilters">',
             '  <button class="dg-pill dg-pill-active" data-type="all">All</button>',
             '  <button class="dg-pill" data-type="ms">Microsoft</button>',
@@ -95,14 +64,12 @@
             '  <button class="dg-pill" data-type="ext">Third Party</button>',
             '</div>',
 
-            // ── Main content ────────────────────────────────────────
             '<div class="dg-main">',
             '  <div class="dg-graph-wrap" id="dgGraphWrap">',
             '    <div id="dgNetwork" class="dg-network"></div>',
             '    <div class="dg-graph-hint" id="dgGraphHint">Loading graph data…</div>',
             '  </div>',
 
-            // ── Detail panel (hidden) ───────────────────────────────
             '  <div class="dg-detail" id="dgDetail">',
             '    <button class="dg-detail-close" id="dgDetailClose" title="Close">&#x2715;</button>',
             '    <div class="dg-detail-header">',
@@ -122,29 +89,29 @@
             '      <div class="dg-chip-list" id="dgReqList"></div>',
             '    </div>',
             '  </div>',
+            '</div>',
+
+            '<div class="dg-legend" id="dgLegend">',
+            '  <span class="dg-legend-item"><span class="dg-legend-dot" style="background:#3b82f6"></span>Microsoft</span>',
+            '  <span class="dg-legend-item"><span class="dg-legend-dot" style="background:#10b981"></span>ISV</span>',
+            '  <span class="dg-legend-item"><span class="dg-legend-dot" style="background:#f43f5e"></span>Custom</span>',
+            '  <span class="dg-legend-item"><span class="dg-legend-dot" style="background:#8b5cf6"></span>Third Party</span>',
             '</div>'
         ].join("\n");
     }
 
-    // ── Execute ─────────────────────────────────────────────────────
     buildDOM();
+    loadCSS("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
-    // Load Google Fonts
-    loadCSS("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap");
-
-    // Load vis-network then signal AL that we are ready
     loadScript("https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js")
         .then(function () {
-            // Fire our custom OnReady event to AL
-            // This replaces the non-existent "OnControlReady" trigger
             Microsoft.Dynamics.NAV.InvokeExtensibilityMethod("OnReady", []);
         })
         .catch(function (err) {
             var hint = document.getElementById("dgGraphHint");
             if (hint) {
                 hint.textContent = "Error loading graph library: " + err.message;
-                hint.style.color = "#f43f5e";
+                hint.style.color = "#ef4444";
             }
-            console.error("DependencyGraph startup error:", err);
         });
 })();
