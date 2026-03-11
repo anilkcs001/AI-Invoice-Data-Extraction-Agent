@@ -1,7 +1,9 @@
 /**
  * @file startup.js
- * @description Bootstrap — builds DOM, loads vis.js, fires OnReady to AL.
- * No physics. Static hierarchical flowchart layout.
+ * @description Builds the two-panel UI, loads vis.js, fires OnReady.
+ *
+ * NEW UX: Left panel = extension list, Right panel = dependency chain for selected extension.
+ * No more 125-node chaos. Clean, focused, human-friendly.
  */
 (function () {
     "use strict";
@@ -38,64 +40,102 @@
         container.className = "dg-root dg-light";
 
         container.innerHTML = [
+            // ── Top bar ─────────────────────────────────────────────
             '<div class="dg-topbar">',
             '  <div class="dg-topbar-left">',
-            '    <svg class="dg-logo-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">',
+            '    <svg class="dg-logo-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">',
             '      <circle cx="5" cy="6" r="2"/><circle cx="12" cy="18" r="2"/>',
             '      <circle cx="19" cy="6" r="2"/><line x1="5" y1="8" x2="12" y2="16"/>',
             '      <line x1="19" y1="8" x2="12" y2="16"/>',
             '    </svg>',
-            '    <h1 class="dg-title">Extension Dependency Graph</h1>',
+            '    <h1 class="dg-title">Extension Dependencies</h1>',
             '  </div>',
             '  <div class="dg-topbar-right">',
-            '    <span class="dg-stat" id="dgStatNodes"><strong id="dgStatNodesNum">0</strong> Extensions</span>',
-            '    <span class="dg-stat" id="dgStatEdges"><strong id="dgStatEdgesNum">0</strong> Dependencies</span>',
-            '    <button class="dg-theme-btn" id="dgThemeToggle" title="Toggle Dark/Light Mode">',
-            '      <span class="dg-theme-icon" id="dgThemeIcon">&#9790;</span>',
+            '    <span class="dg-stat" id="dgStatTotal"><strong id="dgStatTotalNum">0</strong> extensions</span>',
+            '    <button class="dg-theme-btn" id="dgThemeToggle" title="Toggle theme">',
+            '      <span id="dgThemeIcon">&#9790;</span>',
             '    </button>',
             '  </div>',
             '</div>',
 
-            '<div class="dg-filters" id="dgFilters">',
-            '  <button class="dg-pill dg-pill-active" data-type="all">All</button>',
-            '  <button class="dg-pill" data-type="ms">Microsoft</button>',
-            '  <button class="dg-pill" data-type="isv">ISV</button>',
-            '  <button class="dg-pill" data-type="custom">Custom</button>',
-            '  <button class="dg-pill" data-type="ext">Third Party</button>',
-            '</div>',
+            // ── Main two-panel layout ───────────────────────────────
+            '<div class="dg-body">',
 
-            '<div class="dg-main">',
-            '  <div class="dg-graph-wrap" id="dgGraphWrap">',
-            '    <div id="dgNetwork" class="dg-network"></div>',
-            '    <div class="dg-graph-hint" id="dgGraphHint">Loading graph data…</div>',
+            // LEFT: Extension list
+            '  <div class="dg-list-panel" id="dgListPanel">',
+            '    <div class="dg-search-wrap">',
+            '      <svg class="dg-search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+            '      <input type="text" class="dg-search" id="dgSearch" placeholder="Search extensions..." autocomplete="off" spellcheck="false"/>',
+            '    </div>',
+            '    <div class="dg-filter-row" id="dgFilterRow">',
+            '      <button class="dg-filter-btn dg-filter-active" data-type="all">All</button>',
+            '      <button class="dg-filter-btn" data-type="ms">Microsoft</button>',
+            '      <button class="dg-filter-btn" data-type="isv">ISV</button>',
+            '      <button class="dg-filter-btn" data-type="custom">Custom</button>',
+            '      <button class="dg-filter-btn" data-type="ext">3rd Party</button>',
+            '    </div>',
+            '    <div class="dg-ext-list" id="dgExtList">',
+            '      <div class="dg-ext-list-empty">Loading extensions...</div>',
+            '    </div>',
             '  </div>',
 
-            '  <div class="dg-detail" id="dgDetail">',
-            '    <button class="dg-detail-close" id="dgDetailClose" title="Close">&#x2715;</button>',
-            '    <div class="dg-detail-header">',
-            '      <div class="dg-detail-name" id="dgDetailName"></div>',
-            '      <div class="dg-detail-meta">',
-            '        <span class="dg-badge dg-badge-publisher" id="dgDetailPublisher"></span>',
-            '        <span class="dg-badge dg-badge-version" id="dgDetailVersion"></span>',
+            // RIGHT: Dependency view for selected extension
+            '  <div class="dg-detail-panel" id="dgDetailPanel">',
+            '    <div class="dg-empty-state" id="dgEmptyState">',
+            '      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">',
+            '        <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>',
+            '        <rect x="9" y="3" width="6" height="4" rx="1"/>',
+            '        <line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/>',
+            '      </svg>',
+            '      <p>Select an extension from the list to view its dependency chain</p>',
+            '    </div>',
+
+            '    <div class="dg-dep-view" id="dgDepView" style="display:none;">',
+            // Header for selected extension
+            '      <div class="dg-dep-header" id="dgDepHeader">',
+            '        <div class="dg-dep-name" id="dgDepName"></div>',
+            '        <div class="dg-dep-meta">',
+            '          <span class="dg-tag dg-tag-publisher" id="dgDepPublisher"></span>',
+            '          <span class="dg-tag dg-tag-version" id="dgDepVersion"></span>',
+            '          <span class="dg-tag dg-tag-type" id="dgDepType"></span>',
+            '        </div>',
             '      </div>',
-            '      <span class="dg-badge dg-badge-type" id="dgDetailType"></span>',
-            '    </div>',
-            '    <div class="dg-detail-section">',
-            '      <h3 class="dg-detail-section-title">Depends On <span class="dg-count" id="dgDepsCount">0</span></h3>',
-            '      <div class="dg-chip-list" id="dgDepsList"></div>',
-            '    </div>',
-            '    <div class="dg-detail-section">',
-            '      <h3 class="dg-detail-section-title">Required By <span class="dg-count" id="dgReqCount">0</span></h3>',
-            '      <div class="dg-chip-list" id="dgReqList"></div>',
+
+            // Tab bar: Install Order | Tree View
+            '      <div class="dg-tab-bar" id="dgTabBar">',
+            '        <button class="dg-tab dg-tab-active" data-tab="order">',
+            '          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
+            '          Install Order',
+            '        </button>',
+            '        <button class="dg-tab" data-tab="tree">',
+            '          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="12" y1="7" x2="5" y2="17"/><line x1="12" y1="7" x2="19" y2="17"/></svg>',
+            '          Tree View',
+            '        </button>',
+            '        <button class="dg-tab" data-tab="requiredby">',
+            '          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
+            '          Required By',
+            '        </button>',
+            '      </div>',
+
+            // Install order list
+            '      <div class="dg-tab-content" id="dgTabOrder">',
+            '        <div class="dg-order-info" id="dgOrderInfo"></div>',
+            '        <div class="dg-order-list" id="dgOrderList"></div>',
+            '      </div>',
+
+            // Tree graph
+            '      <div class="dg-tab-content" id="dgTabTree" style="display:none;">',
+            '        <div id="dgTreeGraph" class="dg-tree-graph"></div>',
+            '      </div>',
+
+            // Required by list
+            '      <div class="dg-tab-content" id="dgTabRequiredBy" style="display:none;">',
+            '        <div class="dg-order-info" id="dgReqInfo"></div>',
+            '        <div class="dg-order-list" id="dgReqList"></div>',
+            '      </div>',
+
             '    </div>',
             '  </div>',
-            '</div>',
-
-            '<div class="dg-legend" id="dgLegend">',
-            '  <span class="dg-legend-item"><span class="dg-legend-dot" style="background:#3b82f6"></span>Microsoft</span>',
-            '  <span class="dg-legend-item"><span class="dg-legend-dot" style="background:#10b981"></span>ISV</span>',
-            '  <span class="dg-legend-item"><span class="dg-legend-dot" style="background:#f43f5e"></span>Custom</span>',
-            '  <span class="dg-legend-item"><span class="dg-legend-dot" style="background:#8b5cf6"></span>Third Party</span>',
             '</div>'
         ].join("\n");
     }
@@ -108,10 +148,6 @@
             Microsoft.Dynamics.NAV.InvokeExtensibilityMethod("OnReady", []);
         })
         .catch(function (err) {
-            var hint = document.getElementById("dgGraphHint");
-            if (hint) {
-                hint.textContent = "Error loading graph library: " + err.message;
-                hint.style.color = "#ef4444";
-            }
+            console.error("Failed to load vis.js:", err);
         });
 })();
