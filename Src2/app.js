@@ -1,10 +1,14 @@
 /**
  * @file app.js
- * @description Main graph logic — STATIC hierarchical layout (no rotation),
- * working filter pills, dark/light theme toggle.
+ * @description Clean two-panel dependency viewer.
  *
- * Layout: Top-to-bottom flowchart. Extensions with no dependencies at top,
- * deeper dependencies flow downward like a tree/org-chart.
+ * LEFT PANEL: Searchable, filterable list of all extensions.
+ * RIGHT PANEL: For the selected extension, shows:
+ *   - Installation Order (what to install first, in numbered steps)
+ *   - Tree View (small, focused graph — ONLY this extension's chain)
+ *   - Required By (which extensions depend on this one)
+ *
+ * No more 125-node spaghetti. One extension at a time. Clean and human.
  */
 (function () {
     "use strict";
@@ -12,19 +16,18 @@
     // ═══════════════════════════════════════════════════════════════════
     // State
     // ═══════════════════════════════════════════════════════════════════
-    var network = null;
-    var nodesDataset = null;
-    var edgesDataset = null;
     var allNodes = [];
     var allEdges = [];
     var nodeMap = {};
-    var depsOf = {};
-    var requiredBy = {};
+    var depsOf = {};       // id → [ids this depends on]
+    var requiredBy = {};   // id → [ids that depend on this]
+    var selectedId = null;
     var activeFilter = "all";
-    var selectedNodeId = null;
+    var searchText = "";
     var isDarkMode = false;
+    var network = null;
+    var activeTab = "order";
 
-    // ── Colors ──────────────────────────────────────────────────────
     var TYPE_COLORS = {
         ms: "#3b82f6",
         isv: "#10b981",
@@ -35,48 +38,18 @@
         ms: "Microsoft",
         isv: "ISV",
         custom: "Custom",
-        ext: "Third Party"
+        ext: "3rd Party"
     };
-    var HIGHLIGHT_COLOR = "#f59e0b";
-
-    // Theme-dependent colors — set by updateThemeColors()
-    var COLORS = {};
-    function updateThemeColors() {
-        if (isDarkMode) {
-            COLORS.bg = "#0f172a";
-            COLORS.nodeFontColor = "#e2e8f0";
-            COLORS.nodeFontStroke = "#0f172a";
-            COLORS.edgeColor = "rgba(148,163,184,0.3)";
-            COLORS.edgeDim = "rgba(148,163,184,0.08)";
-            COLORS.dimNode = "rgba(255,255,255,0.08)";
-            COLORS.dimFont = "rgba(255,255,255,0.2)";
-        } else {
-            COLORS.bg = "#ffffff";
-            COLORS.nodeFontColor = "#1e293b";
-            COLORS.nodeFontStroke = "#ffffff";
-            COLORS.edgeColor = "rgba(100,116,139,0.35)";
-            COLORS.edgeDim = "rgba(100,116,139,0.08)";
-            COLORS.dimNode = "rgba(0,0,0,0.06)";
-            COLORS.dimFont = "rgba(0,0,0,0.2)";
-        }
-    }
-    updateThemeColors();
 
     // ═══════════════════════════════════════════════════════════════════
-    // window.LoadGraph
+    // window.LoadGraph — called by AL
     // ═══════════════════════════════════════════════════════════════════
     window.LoadGraph = function (jsonPayload) {
         var data;
-        try {
-            data = JSON.parse(jsonPayload);
-        } catch (e) {
-            showHint("Invalid JSON data received.");
-            return;
-        }
-        if (!data || !data.nodes) {
-            showHint("No extension data found.");
-            return;
-        }
+        try { data = JSON.parse(jsonPayload); }
+        catch (e) { return; }
+
+        if (!data || !data.nodes) return;
         if (!data.edges) data.edges = [];
 
         allNodes = data.nodes;
@@ -86,255 +59,107 @@
         nodeMap = {};
         depsOf = {};
         requiredBy = {};
-        var i, n, e;
+
+        var i;
         for (i = 0; i < allNodes.length; i++) {
-            n = allNodes[i];
-            nodeMap[n.id] = n;
-            depsOf[n.id] = [];
-            requiredBy[n.id] = [];
+            nodeMap[allNodes[i].id] = allNodes[i];
+            depsOf[allNodes[i].id] = [];
+            requiredBy[allNodes[i].id] = [];
         }
         for (i = 0; i < allEdges.length; i++) {
-            e = allEdges[i];
+            var e = allEdges[i];
             if (depsOf[e.from]) depsOf[e.from].push(e.to);
             if (requiredBy[e.to]) requiredBy[e.to].push(e.from);
         }
 
-        updateStats(allNodes.length, allEdges.length);
-        activeFilter = "all";
-        selectedNodeId = null;
-        setActivePill("all");
-        closeDetailPanel();
-        rebuildGraph(allNodes, allEdges);
-        hideHint();
+        // Sort nodes alphabetically
+        allNodes.sort(function (a, b) {
+            return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+        });
+
+        // Update stats
+        var stat = document.getElementById("dgStatTotalNum");
+        if (stat) stat.textContent = String(allNodes.length);
+
+        // Render list
+        selectedId = null;
+        renderExtList();
+        showEmptyState();
     };
 
     // ═══════════════════════════════════════════════════════════════════
-    // window.HighlightNode
+    // window.HighlightNode — called by AL
     // ═══════════════════════════════════════════════════════════════════
     window.HighlightNode = function (appId) {
         if (!appId || !nodeMap[appId]) return;
-        selectNode(appId);
+        selectExtension(appId);
     };
 
     // ═══════════════════════════════════════════════════════════════════
-    // Graph rebuild — completely static hierarchical layout
+    // Extension List (left panel)
     // ═══════════════════════════════════════════════════════════════════
-    function rebuildGraph(nodes, edges) {
-        var container = document.getElementById("dgNetwork");
+
+    function renderExtList() {
+        var container = document.getElementById("dgExtList");
         if (!container) return;
 
-        if (network) {
-            network.destroy();
-            network = null;
-        }
-
-        var visNodes = [];
-        for (var i = 0; i < nodes.length; i++) {
-            visNodes.push(buildVisNode(nodes[i], false, false));
-        }
-        var visEdges = [];
-        for (var j = 0; j < edges.length; j++) {
-            visEdges.push(buildVisEdge(edges[j], j, false));
-        }
-
-        nodesDataset = new vis.DataSet(visNodes);
-        edgesDataset = new vis.DataSet(visEdges);
-
-        // ── STATIC hierarchical layout — NO physics, NO rotation ────
-        var options = {
-            autoResize: true,
-            layout: {
-                hierarchical: {
-                    enabled: true,
-                    direction: "UD",           // Up-to-Down (top = root, bottom = leaves)
-                    sortMethod: "directed",    // Follow edge direction for ordering
-                    levelSeparation: 120,      // Vertical gap between levels
-                    nodeSpacing: 180,          // Horizontal gap between siblings
-                    treeSpacing: 220,          // Gap between separate trees
-                    blockShifting: true,
-                    edgeMinimization: true,
-                    parentCentralization: true,
-                    shakeTowards: "roots"      // Push nodes with no incoming edges to top
-                }
-            },
-            physics: {
-                enabled: false               // *** COMPLETELY OFF — no movement, no rotation ***
-            },
-            interaction: {
-                hover: true,
-                tooltipDelay: 200,
-                zoomView: true,
-                dragView: true,
-                dragNodes: true,             // User can manually drag nodes
-                navigationButtons: false,
-                keyboard: false
-            },
-            nodes: {
-                shape: "box",                // Box shape — cleaner for flowcharts
-                font: {
-                    color: COLORS.nodeFontColor,
-                    size: 12,
-                    face: "'Inter', sans-serif",
-                    multi: false
-                },
-                borderWidth: 2,
-                borderWidthSelected: 3,
-                margin: { top: 10, bottom: 10, left: 14, right: 14 },
-                shadow: {
-                    enabled: true,
-                    color: "rgba(0,0,0,0.08)",
-                    size: 6,
-                    x: 0,
-                    y: 2
-                },
-                widthConstraint: { minimum: 120, maximum: 240 }
-            },
-            edges: {
-                arrows: { to: { enabled: true, scaleFactor: 0.7, type: "arrow" } },
-                smooth: {
-                    enabled: true,
-                    type: "cubicBezier",
-                    forceDirection: "vertical",
-                    roundness: 0.4
-                },
-                width: 1.5,
-                selectionWidth: 2.5
+        var filtered = allNodes.filter(function (n) {
+            // Filter by type
+            if (activeFilter !== "all" && n.type !== activeFilter) return false;
+            // Filter by search
+            if (searchText) {
+                var q = searchText.toLowerCase();
+                if (n.name.toLowerCase().indexOf(q) === -1 &&
+                    n.publisher.toLowerCase().indexOf(q) === -1) return false;
             }
-        };
-
-        network = new vis.Network(container, { nodes: nodesDataset, edges: edgesDataset }, options);
-
-        // ── Click handler ───────────────────────────────────────────
-        network.on("click", function (params) {
-            if (params.nodes && params.nodes.length > 0) {
-                selectNode(params.nodes[0]);
-            } else {
-                deselectAll();
-                closeDetailPanel();
-            }
+            return true;
         });
 
-        network.on("hoverNode", function () { container.style.cursor = "pointer"; });
-        network.on("blurNode", function () { container.style.cursor = "default"; });
-
-        // Fit after layout settles
-        setTimeout(function () {
-            if (network) {
-                network.fit({ animation: { duration: 400, easingFunction: "easeInOutQuad" } });
-            }
-        }, 300);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Node / Edge builders
-    // ═══════════════════════════════════════════════════════════════════
-    function buildVisNode(n, isSelected, isDimmed) {
-        var baseColor = TYPE_COLORS[n.type] || TYPE_COLORS.ext;
-        var bgColor, borderColor, fontColor;
-
-        if (isSelected) {
-            bgColor = HIGHLIGHT_COLOR;
-            borderColor = "#d97706";
-            fontColor = "#fff";
-        } else if (isDimmed) {
-            bgColor = COLORS.dimNode;
-            borderColor = COLORS.dimNode;
-            fontColor = COLORS.dimFont;
-        } else {
-            bgColor = isDarkMode ? darken(baseColor, 0.7) : lightenForBg(baseColor, 0.88);
-            borderColor = baseColor;
-            fontColor = COLORS.nodeFontColor;
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="dg-ext-list-empty">No extensions match your search</div>';
+            return;
         }
 
-        var result = {
-            id: n.id,
-            label: truncate(n.name, 32),
-            title: n.name + "\n" + n.publisher + "\nv" + n.version,
-            color: {
-                background: bgColor,
-                border: borderColor,
-                highlight: { background: HIGHLIGHT_COLOR, border: "#d97706" },
-                hover: { background: lightenForBg(baseColor, isDarkMode ? 0.3 : 0.8), border: baseColor }
-            },
-            font: {
-                color: fontColor,
-                size: 12,
-                face: "'Inter', sans-serif"
-            },
-            borderWidth: isSelected ? 3 : 2
-        };
+        var html = [];
+        for (var i = 0; i < filtered.length; i++) {
+            var n = filtered[i];
+            var isActive = (n.id === selectedId);
+            var depCount = (depsOf[n.id] || []).length;
+            var reqCount = (requiredBy[n.id] || []).length;
 
-        if (isSelected) {
-            result.shadow = { enabled: true, color: "rgba(245,158,11,0.35)", size: 14, x: 0, y: 0 };
+            html.push(
+                '<button class="dg-ext-item' + (isActive ? ' dg-ext-item-active' : '') + '" data-id="' + n.id + '">',
+                '  <span class="dg-ext-dot" style="background:' + (TYPE_COLORS[n.type] || '#8b5cf6') + '"></span>',
+                '  <div class="dg-ext-info">',
+                '    <div class="dg-ext-name">' + escapeHtml(n.name) + '</div>',
+                '    <div class="dg-ext-sub">' + escapeHtml(n.publisher) + ' &middot; v' + escapeHtml(n.version) + '</div>',
+                '  </div>',
+                '  <div class="dg-ext-badges">',
+                (depCount > 0 ? '<span class="dg-ext-badge" title="Dependencies">' + depCount + ' dep' + (depCount > 1 ? 's' : '') + '</span>' : ''),
+                (reqCount > 0 ? '<span class="dg-ext-badge dg-ext-badge-req" title="Required by">' + reqCount + ' req</span>' : ''),
+                '  </div>',
+                '</button>'
+            );
         }
 
-        return result;
+        container.innerHTML = html.join("");
     }
 
-    function buildVisEdge(e, index, isDimmed) {
-        return {
-            id: "e" + index,
-            from: e.from,
-            to: e.to,
-            arrows: "to",
-            color: {
-                color: isDimmed ? COLORS.edgeDim : COLORS.edgeColor,
-                highlight: HIGHLIGHT_COLOR,
-                hover: HIGHLIGHT_COLOR
-            },
-            width: isDimmed ? 0.5 : 1.5,
-            smooth: { enabled: true, type: "cubicBezier", forceDirection: "vertical", roundness: 0.4 }
-        };
-    }
+    function selectExtension(id) {
+        if (!nodeMap[id]) return;
+        selectedId = id;
+        renderExtList(); // Re-render to show active state
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Selection
-    // ═══════════════════════════════════════════════════════════════════
-    function selectNode(nodeId) {
-        if (!nodeMap[nodeId]) return;
-        selectedNodeId = nodeId;
-        var node = nodeMap[nodeId];
-
-        var connectedIds = {};
-        connectedIds[nodeId] = true;
-        var deps = depsOf[nodeId] || [];
-        var reqs = requiredBy[nodeId] || [];
-        var i;
-        for (i = 0; i < deps.length; i++) connectedIds[deps[i]] = true;
-        for (i = 0; i < reqs.length; i++) connectedIds[reqs[i]] = true;
-
-        // Update nodes
-        var nodeUpdates = [];
-        nodesDataset.forEach(function (vn) {
-            var raw = nodeMap[vn.id];
-            if (!raw) return;
-            nodeUpdates.push(buildVisNode(raw, vn.id === nodeId, !connectedIds[vn.id]));
-        });
-        nodesDataset.update(nodeUpdates);
-
-        // Update edges
-        var edgeUpdates = [];
-        edgesDataset.forEach(function (ve) {
-            var both = connectedIds[ve.from] && connectedIds[ve.to];
-            edgeUpdates.push({
-                id: ve.id,
-                color: {
-                    color: both ? HIGHLIGHT_COLOR : COLORS.edgeDim,
-                    highlight: HIGHLIGHT_COLOR,
-                    hover: HIGHLIGHT_COLOR
-                },
-                width: both ? 2.5 : 0.5
-            });
-        });
-        edgesDataset.update(edgeUpdates);
-
-        // Focus
-        if (network) {
-            network.focus(nodeId, { scale: 1.0, animation: { duration: 400, easingFunction: "easeInOutQuad" } });
+        // Scroll the selected item into view
+        var activeItem = document.querySelector('.dg-ext-item-active');
+        if (activeItem) {
+            activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
-        openDetailPanel(node);
+        showDepView(id);
 
+        // Fire callback to AL
+        var node = nodeMap[id];
         try {
             Microsoft.Dynamics.NAV.InvokeExtensibilityMethod("OnNodeSelected", [
                 node.id || "", node.name || "", node.publisher || "", node.version || ""
@@ -342,153 +167,349 @@
         } catch (ex) { /* ignore */ }
     }
 
-    function deselectAll() {
-        selectedNodeId = null;
-        if (!nodesDataset) return;
+    // ═══════════════════════════════════════════════════════════════════
+    // Dependency View (right panel)
+    // ═══════════════════════════════════════════════════════════════════
 
-        var nodeUpdates = [];
-        nodesDataset.forEach(function (vn) {
-            var raw = nodeMap[vn.id];
-            if (raw) nodeUpdates.push(buildVisNode(raw, false, false));
-        });
-        nodesDataset.update(nodeUpdates);
-
-        var edgeUpdates = [];
-        edgesDataset.forEach(function (ve) {
-            edgeUpdates.push({
-                id: ve.id,
-                color: { color: COLORS.edgeColor, highlight: HIGHLIGHT_COLOR, hover: HIGHLIGHT_COLOR },
-                width: 1.5
-            });
-        });
-        edgesDataset.update(edgeUpdates);
+    function showEmptyState() {
+        var empty = document.getElementById("dgEmptyState");
+        var view = document.getElementById("dgDepView");
+        if (empty) empty.style.display = "flex";
+        if (view) view.style.display = "none";
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // FILTERING — FIXED: completely rebuilds graph with filtered data
-    // ═══════════════════════════════════════════════════════════════════
-    function applyFilter(type) {
-        activeFilter = type;
-        selectedNodeId = null;
-        closeDetailPanel();
+    function showDepView(id) {
+        var empty = document.getElementById("dgEmptyState");
+        var view = document.getElementById("dgDepView");
+        if (empty) empty.style.display = "none";
+        if (view) view.style.display = "flex";
 
-        var filteredNodes = [];
-        var visibleIds = {};
-        var i;
+        var node = nodeMap[id];
+        if (!node) return;
 
-        if (type === "all") {
-            filteredNodes = allNodes.slice();
-            for (i = 0; i < allNodes.length; i++) {
-                visibleIds[allNodes[i].id] = true;
-            }
-        } else {
-            for (i = 0; i < allNodes.length; i++) {
-                if (allNodes[i].type === type) {
-                    filteredNodes.push(allNodes[i]);
-                    visibleIds[allNodes[i].id] = true;
-                }
-            }
-        }
+        // Header
+        setTextById("dgDepName", node.name);
+        setTextById("dgDepPublisher", node.publisher);
+        setTextById("dgDepVersion", "v" + node.version);
 
-        var filteredEdges = [];
-        for (i = 0; i < allEdges.length; i++) {
-            if (visibleIds[allEdges[i].from] && visibleIds[allEdges[i].to]) {
-                filteredEdges.push(allEdges[i]);
-            }
-        }
-
-        updateStats(filteredNodes.length, filteredEdges.length);
-
-        // FULL REBUILD — this is key. We destroy and recreate the network
-        // so the hierarchical layout recalculates for the filtered subset.
-        rebuildGraph(filteredNodes, filteredEdges);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Detail Panel
-    // ═══════════════════════════════════════════════════════════════════
-    function openDetailPanel(node) {
-        var panel = document.getElementById("dgDetail");
-        if (!panel) return;
-
-        setTextById("dgDetailName", node.name || "Unknown");
-        setTextById("dgDetailPublisher", node.publisher || "Unknown");
-        setTextById("dgDetailVersion", "v" + (node.version || "0.0.0.0"));
-
-        var typeEl = document.getElementById("dgDetailType");
+        var typeEl = document.getElementById("dgDepType");
         if (typeEl) {
             typeEl.textContent = TYPE_LABELS[node.type] || "Extension";
             typeEl.style.backgroundColor = TYPE_COLORS[node.type] || TYPE_COLORS.ext;
-            typeEl.style.color = "#fff";
         }
 
-        // Depends On
-        var deps = (depsOf[node.id] || []).filter(function (id) { return !!nodeMap[id]; });
-        setTextById("dgDepsCount", String(deps.length));
-        var depsList = document.getElementById("dgDepsList");
-        if (depsList) {
-            depsList.innerHTML = "";
-            if (deps.length === 0) {
-                depsList.innerHTML = '<span class="dg-chip-empty">No dependencies</span>';
-            } else {
-                for (var d = 0; d < deps.length; d++) depsList.appendChild(createChip(deps[d]));
-            }
-        }
-
-        // Required By
-        var reqs = (requiredBy[node.id] || []).filter(function (id) { return !!nodeMap[id]; });
-        setTextById("dgReqCount", String(reqs.length));
-        var reqList = document.getElementById("dgReqList");
-        if (reqList) {
-            reqList.innerHTML = "";
-            if (reqs.length === 0) {
-                reqList.innerHTML = '<span class="dg-chip-empty">No dependents</span>';
-            } else {
-                for (var r = 0; r < reqs.length; r++) reqList.appendChild(createChip(reqs[r]));
-            }
-        }
-
-        panel.classList.add("dg-detail-open");
+        // Show active tab content
+        switchTab(activeTab);
     }
 
-    function closeDetailPanel() {
-        var panel = document.getElementById("dgDetail");
-        if (panel) panel.classList.remove("dg-detail-open");
+    // ═══════════════════════════════════════════════════════════════════
+    // Tab: Installation Order
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Computes the full installation order using topological sort (BFS/DFS).
+     * Returns an array of node ids in the order they should be installed
+     * (deepest dependency first, selected extension last).
+     */
+    function getInstallOrder(rootId) {
+        var visited = {};
+        var order = [];
+
+        function dfs(id) {
+            if (visited[id]) return;
+            visited[id] = true;
+            var deps = depsOf[id] || [];
+            for (var i = 0; i < deps.length; i++) {
+                if (nodeMap[deps[i]]) {
+                    dfs(deps[i]);
+                }
+            }
+            order.push(id);
+        }
+
+        dfs(rootId);
+        return order;
     }
 
-    function createChip(nodeId) {
-        var n = nodeMap[nodeId];
-        if (!n) return document.createElement("span");
+    function renderInstallOrder() {
+        if (!selectedId) return;
 
-        var chip = document.createElement("button");
-        chip.className = "dg-chip";
-        chip.style.borderLeftColor = TYPE_COLORS[n.type] || TYPE_COLORS.ext;
+        var order = getInstallOrder(selectedId);
+        var infoEl = document.getElementById("dgOrderInfo");
+        var listEl = document.getElementById("dgOrderList");
+        if (!infoEl || !listEl) return;
 
-        var dot = document.createElement("span");
-        dot.className = "dg-chip-dot";
-        dot.style.backgroundColor = TYPE_COLORS[n.type] || TYPE_COLORS.ext;
-        chip.appendChild(dot);
-        chip.appendChild(document.createTextNode(truncate(n.name, 34)));
+        if (order.length <= 1) {
+            infoEl.textContent = "This extension has no dependencies. Install it directly.";
+            listEl.innerHTML = renderOrderItem(selectedId, 1, order.length, true);
+            return;
+        }
 
-        chip.addEventListener("click", function (evt) {
-            evt.stopPropagation();
-            // If node not visible due to filter, switch to All
-            if (nodesDataset && !nodesDataset.get(nodeId)) {
-                applyFilter("all");
-                setActivePill("all");
-                // Need a small delay for rebuild to finish
-                setTimeout(function () { selectNode(nodeId); }, 400);
-                return;
+        infoEl.textContent = "Install these " + order.length + " extensions in order (first to last):";
+
+        var html = [];
+        for (var i = 0; i < order.length; i++) {
+            var isRoot = (order[i] === selectedId);
+            html.push(renderOrderItem(order[i], i + 1, order.length, isRoot));
+        }
+        listEl.innerHTML = html.join("");
+    }
+
+    function renderOrderItem(id, step, total, isRoot) {
+        var n = nodeMap[id];
+        if (!n) return "";
+
+        var color = TYPE_COLORS[n.type] || TYPE_COLORS.ext;
+        var depCount = (depsOf[id] || []).length;
+
+        return [
+            '<div class="dg-order-item' + (isRoot ? ' dg-order-item-root' : '') + '" data-id="' + id + '">',
+            '  <div class="dg-order-step">' + step + '</div>',
+            '  <div class="dg-order-line' + (step === total ? ' dg-order-line-last' : '') + '"></div>',
+            '  <div class="dg-order-card">',
+            '    <div class="dg-order-card-top">',
+            '      <span class="dg-order-dot" style="background:' + color + '"></span>',
+            '      <span class="dg-order-name">' + escapeHtml(n.name) + '</span>',
+            '      <span class="dg-order-type" style="background:' + color + '">' + (TYPE_LABELS[n.type] || "Ext") + '</span>',
+            '    </div>',
+            '    <div class="dg-order-card-bottom">',
+            '      <span>' + escapeHtml(n.publisher) + '</span>',
+            '      <span>v' + escapeHtml(n.version) + '</span>',
+            (depCount > 0 ? '<span>' + depCount + ' dep' + (depCount > 1 ? 's' : '') + '</span>' : ''),
+            '    </div>',
+            (isRoot ? '<div class="dg-order-root-label">&#9733; Selected Extension</div>' : ''),
+            '  </div>',
+            '</div>'
+        ].join("");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Tab: Tree View (focused graph — only the selected extension's deps)
+    // ═══════════════════════════════════════════════════════════════════
+
+    function renderTreeView() {
+        if (!selectedId) return;
+
+        var container = document.getElementById("dgTreeGraph");
+        if (!container) return;
+
+        if (network) { network.destroy(); network = null; }
+
+        // Get all nodes in the dependency chain
+        var chainIds = {};
+        function collectDeps(id) {
+            if (chainIds[id]) return;
+            chainIds[id] = true;
+            var deps = depsOf[id] || [];
+            for (var i = 0; i < deps.length; i++) {
+                if (nodeMap[deps[i]]) collectDeps(deps[i]);
             }
-            selectNode(nodeId);
+        }
+        collectDeps(selectedId);
+
+        // Also include nodes that directly depend on this (one level up)
+        var reqBy = requiredBy[selectedId] || [];
+        for (var r = 0; r < reqBy.length; r++) {
+            if (nodeMap[reqBy[r]]) chainIds[reqBy[r]] = true;
+        }
+
+        // Build vis nodes
+        var visNodes = [];
+        var ids = Object.keys(chainIds);
+        for (var i = 0; i < ids.length; i++) {
+            var n = nodeMap[ids[i]];
+            if (!n) continue;
+            var isRoot = (ids[i] === selectedId);
+            var baseColor = TYPE_COLORS[n.type] || TYPE_COLORS.ext;
+
+            visNodes.push({
+                id: n.id,
+                label: truncate(n.name, 28),
+                title: n.name + "\n" + n.publisher + "\nv" + n.version,
+                color: {
+                    background: isRoot ? "#f59e0b" : (isDarkMode ? darkenColor(baseColor, 0.7) : lightenColor(baseColor, 0.88)),
+                    border: isRoot ? "#d97706" : baseColor,
+                    highlight: { background: "#f59e0b", border: "#d97706" }
+                },
+                font: {
+                    color: isRoot ? "#fff" : (isDarkMode ? "#e2e8f0" : "#1e293b"),
+                    size: isRoot ? 13 : 12,
+                    face: "'Inter', sans-serif",
+                    bold: isRoot ? { color: "#fff" } : undefined
+                },
+                borderWidth: isRoot ? 3 : 2,
+                shape: "box",
+                margin: { top: 8, bottom: 8, left: 12, right: 12 },
+                shadow: isRoot ? { enabled: true, color: "rgba(245,158,11,0.3)", size: 12 } : { enabled: true, color: "rgba(0,0,0,0.06)", size: 4 },
+                widthConstraint: { minimum: 100, maximum: 220 }
+            });
+        }
+
+        // Build vis edges (only for nodes in the chain)
+        var visEdges = [];
+        var edgeIdx = 0;
+        for (var j = 0; j < allEdges.length; j++) {
+            var e = allEdges[j];
+            if (chainIds[e.from] && chainIds[e.to]) {
+                visEdges.push({
+                    id: "e" + edgeIdx++,
+                    from: e.from,
+                    to: e.to,
+                    arrows: "to",
+                    color: {
+                        color: isDarkMode ? "rgba(148,163,184,0.35)" : "rgba(100,116,139,0.3)",
+                        highlight: "#f59e0b"
+                    },
+                    width: 1.5,
+                    smooth: { type: "cubicBezier", forceDirection: "vertical", roundness: 0.4 }
+                });
+            }
+        }
+
+        if (visNodes.length === 0) {
+            container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--dg-text-muted);font-size:14px;">No dependency tree to display</div>';
+            return;
+        }
+
+        var nodesDS = new vis.DataSet(visNodes);
+        var edgesDS = new vis.DataSet(visEdges);
+
+        var options = {
+            autoResize: true,
+            layout: {
+                hierarchical: {
+                    enabled: true,
+                    direction: "UD",
+                    sortMethod: "directed",
+                    levelSeparation: 90,
+                    nodeSpacing: 160,
+                    treeSpacing: 200,
+                    blockShifting: true,
+                    edgeMinimization: true,
+                    parentCentralization: true,
+                    shakeTowards: "roots"
+                }
+            },
+            physics: { enabled: false },
+            interaction: {
+                hover: true,
+                zoomView: true,
+                dragView: true,
+                dragNodes: false
+            },
+            nodes: {
+                shape: "box",
+                font: { size: 12, face: "'Inter', sans-serif" },
+                borderWidth: 2,
+                margin: { top: 8, bottom: 8, left: 12, right: 12 }
+            },
+            edges: {
+                arrows: { to: { enabled: true, scaleFactor: 0.6 } },
+                smooth: { type: "cubicBezier", forceDirection: "vertical", roundness: 0.4 }
+            }
+        };
+
+        network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, options);
+
+        // Click a node in tree → select that extension
+        network.on("click", function (params) {
+            if (params.nodes && params.nodes.length > 0) {
+                var clickedId = params.nodes[0];
+                if (clickedId !== selectedId) {
+                    selectExtension(clickedId);
+                }
+            }
         });
 
-        return chip;
+        setTimeout(function () {
+            if (network) network.fit({ animation: { duration: 300, easingFunction: "easeInOutQuad" } });
+        }, 200);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Tab: Required By
+    // ═══════════════════════════════════════════════════════════════════
+
+    function renderRequiredBy() {
+        if (!selectedId) return;
+
+        var reqs = (requiredBy[selectedId] || []).filter(function (id) { return !!nodeMap[id]; });
+        var infoEl = document.getElementById("dgReqInfo");
+        var listEl = document.getElementById("dgReqList");
+        if (!infoEl || !listEl) return;
+
+        if (reqs.length === 0) {
+            infoEl.textContent = "No other extension depends on this one.";
+            listEl.innerHTML = "";
+            return;
+        }
+
+        // Sort alphabetically
+        reqs.sort(function (a, b) {
+            return (nodeMap[a].name || "").toLowerCase().localeCompare((nodeMap[b].name || "").toLowerCase());
+        });
+
+        infoEl.textContent = reqs.length + " extension" + (reqs.length > 1 ? "s" : "") + " depend" + (reqs.length === 1 ? "s" : "") + " on this:";
+
+        var html = [];
+        for (var i = 0; i < reqs.length; i++) {
+            var n = nodeMap[reqs[i]];
+            if (!n) continue;
+            var color = TYPE_COLORS[n.type] || TYPE_COLORS.ext;
+            html.push(
+                '<button class="dg-req-item" data-id="' + n.id + '">',
+                '  <span class="dg-order-dot" style="background:' + color + '"></span>',
+                '  <div class="dg-req-info">',
+                '    <div class="dg-req-name">' + escapeHtml(n.name) + '</div>',
+                '    <div class="dg-req-sub">' + escapeHtml(n.publisher) + ' &middot; v' + escapeHtml(n.version) + '</div>',
+                '  </div>',
+                '  <span class="dg-order-type" style="background:' + color + '">' + (TYPE_LABELS[n.type] || "Ext") + '</span>',
+                '</button>'
+            );
+        }
+        listEl.innerHTML = html.join("");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Tab switching
+    // ═══════════════════════════════════════════════════════════════════
+
+    function switchTab(tab) {
+        activeTab = tab;
+
+        // Update tab buttons
+        var tabs = document.querySelectorAll(".dg-tab");
+        for (var i = 0; i < tabs.length; i++) {
+            var t = tabs[i];
+            if (t.getAttribute("data-tab") === tab) {
+                t.classList.add("dg-tab-active");
+            } else {
+                t.classList.remove("dg-tab-active");
+            }
+        }
+
+        // Show/hide content
+        var orderEl = document.getElementById("dgTabOrder");
+        var treeEl = document.getElementById("dgTabTree");
+        var reqEl = document.getElementById("dgTabRequiredBy");
+
+        if (orderEl) orderEl.style.display = (tab === "order") ? "block" : "none";
+        if (treeEl) treeEl.style.display = (tab === "tree") ? "block" : "none";
+        if (reqEl) reqEl.style.display = (tab === "requiredby") ? "block" : "none";
+
+        // Render content for active tab
+        if (tab === "order") renderInstallOrder();
+        if (tab === "tree") {
+            // Small delay to let container become visible before rendering
+            setTimeout(renderTreeView, 50);
+        }
+        if (tab === "requiredby") renderRequiredBy();
     }
 
     // ═══════════════════════════════════════════════════════════════════
     // Theme Toggle
     // ═══════════════════════════════════════════════════════════════════
+
     function toggleTheme() {
         isDarkMode = !isDarkMode;
         var root = document.querySelector(".dg-root");
@@ -499,55 +520,24 @@
         var icon = document.getElementById("dgThemeIcon");
         if (icon) icon.innerHTML = isDarkMode ? "&#9788;" : "&#9790;";
 
-        updateThemeColors();
-
-        // Re-render with current filter
-        var currentNodes, currentEdges;
-        if (activeFilter === "all") {
-            currentNodes = allNodes;
-            currentEdges = allEdges;
-        } else {
-            currentNodes = [];
-            currentEdges = [];
-            var visibleIds = {};
-            for (var i = 0; i < allNodes.length; i++) {
-                if (allNodes[i].type === activeFilter) {
-                    currentNodes.push(allNodes[i]);
-                    visibleIds[allNodes[i].id] = true;
-                }
-            }
-            for (var j = 0; j < allEdges.length; j++) {
-                if (visibleIds[allEdges[j].from] && visibleIds[allEdges[j].to]) {
-                    currentEdges.push(allEdges[j]);
-                }
-            }
+        // Re-render tree if visible
+        if (activeTab === "tree" && selectedId) {
+            setTimeout(renderTreeView, 100);
         }
-        rebuildGraph(currentNodes, currentEdges);
     }
 
     // ═══════════════════════════════════════════════════════════════════
     // Utilities
     // ═══════════════════════════════════════════════════════════════════
+
     function setTextById(id, text) {
         var el = document.getElementById(id);
-        if (el) el.textContent = text;
+        if (el) el.textContent = text || "";
     }
 
-    function updateStats(nc, ec) {
-        var sn = document.getElementById("dgStatNodesNum");
-        var se = document.getElementById("dgStatEdgesNum");
-        if (sn) sn.textContent = String(nc);
-        if (se) se.textContent = String(ec);
-    }
-
-    function showHint(msg) {
-        var h = document.getElementById("dgGraphHint");
-        if (h) { h.textContent = msg; h.style.display = "flex"; }
-    }
-
-    function hideHint() {
-        var h = document.getElementById("dgGraphHint");
-        if (h) h.style.display = "none";
+    function escapeHtml(str) {
+        if (!str) return "";
+        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
 
     function truncate(str, max) {
@@ -555,31 +545,16 @@
         return str.length > max ? str.substring(0, max - 1) + "\u2026" : str;
     }
 
-    /**
-     * Creates a lighter version of a hex color for node backgrounds.
-     * @param {string} hex - Base hex color
-     * @param {number} factor - 0 to 1, higher = lighter
-     * @returns {string} rgba color string
-     */
-    function lightenForBg(hex, factor) {
+    function lightenColor(hex, factor) {
         if (!hex || hex.charAt(0) !== "#") return hex;
         var num = parseInt(hex.slice(1), 16);
-        var r = (num >> 16) & 0xff;
-        var g = (num >> 8) & 0xff;
-        var b = num & 0xff;
-        r = Math.round(r + (255 - r) * factor);
-        g = Math.round(g + (255 - g) * factor);
-        b = Math.round(b + (255 - b) * factor);
+        var r = Math.round(((num >> 16) & 0xff) + (255 - ((num >> 16) & 0xff)) * factor);
+        var g = Math.round(((num >> 8) & 0xff) + (255 - ((num >> 8) & 0xff)) * factor);
+        var b = Math.round((num & 0xff) + (255 - (num & 0xff)) * factor);
         return "rgb(" + r + "," + g + "," + b + ")";
     }
 
-    /**
-     * Darkens a hex color for dark-mode node backgrounds.
-     * @param {string} hex
-     * @param {number} factor - 0 to 1, lower = darker
-     * @returns {string}
-     */
-    function darken(hex, factor) {
+    function darkenColor(hex, factor) {
         if (!hex || hex.charAt(0) !== "#") return hex;
         var num = parseInt(hex.slice(1), 16);
         var r = Math.round(((num >> 16) & 0xff) * factor);
@@ -588,73 +563,126 @@
         return "rgb(" + r + "," + g + "," + b + ")";
     }
 
-    function setActivePill(type) {
-        var pills = document.querySelectorAll(".dg-pill");
-        for (var i = 0; i < pills.length; i++) {
-            var pill = pills[i];
-            var pt = pill.getAttribute("data-type");
-            if (pt === type) {
-                pill.classList.add("dg-pill-active");
-                if (pt !== "all" && TYPE_COLORS[pt]) {
-                    pill.style.backgroundColor = TYPE_COLORS[pt];
-                    pill.style.color = "#fff";
-                    pill.style.borderColor = TYPE_COLORS[pt];
-                } else {
-                    pill.style.backgroundColor = "";
-                    pill.style.color = "";
-                    pill.style.borderColor = "";
-                }
-            } else {
-                pill.classList.remove("dg-pill-active");
-                pill.style.backgroundColor = "";
-                pill.style.color = "";
-                pill.style.borderColor = "";
-            }
-        }
-    }
-
     // ═══════════════════════════════════════════════════════════════════
     // Event Wiring
     // ═══════════════════════════════════════════════════════════════════
 
-    // ── Filter pills ────────────────────────────────────────────────
-    var filtersEl = document.getElementById("dgFilters");
-    if (filtersEl) {
-        filtersEl.addEventListener("click", function (evt) {
+    // ── Extension list click ────────────────────────────────────────
+    var extListEl = document.getElementById("dgExtList");
+    if (extListEl) {
+        extListEl.addEventListener("click", function (evt) {
             var target = evt.target;
-            while (target && !target.classList.contains("dg-pill")) {
-                if (target === filtersEl) { target = null; break; }
+            while (target && !target.classList.contains("dg-ext-item")) {
+                if (target === extListEl) { target = null; break; }
+                target = target.parentElement;
+            }
+            if (!target) return;
+            var id = target.getAttribute("data-id");
+            if (id) selectExtension(id);
+        });
+    }
+
+    // ── Search ──────────────────────────────────────────────────────
+    var searchEl = document.getElementById("dgSearch");
+    if (searchEl) {
+        searchEl.addEventListener("input", function () {
+            searchText = searchEl.value.trim();
+            renderExtList();
+        });
+    }
+
+    // ── Filter buttons ──────────────────────────────────────────────
+    var filterRow = document.getElementById("dgFilterRow");
+    if (filterRow) {
+        filterRow.addEventListener("click", function (evt) {
+            var target = evt.target;
+            while (target && !target.classList.contains("dg-filter-btn")) {
+                if (target === filterRow) { target = null; break; }
                 target = target.parentElement;
             }
             if (!target) return;
             var type = target.getAttribute("data-type");
-            if (!type) return;
+            if (!type || type === activeFilter) return;
 
-            // Don't re-filter if already active
-            if (type === activeFilter) return;
+            activeFilter = type;
 
-            setActivePill(type);
-            applyFilter(type);
+            // Update active state
+            var btns = filterRow.querySelectorAll(".dg-filter-btn");
+            for (var i = 0; i < btns.length; i++) {
+                var btn = btns[i];
+                var bt = btn.getAttribute("data-type");
+                if (bt === type) {
+                    btn.classList.add("dg-filter-active");
+                    if (bt !== "all" && TYPE_COLORS[bt]) {
+                        btn.style.backgroundColor = TYPE_COLORS[bt];
+                        btn.style.color = "#fff";
+                        btn.style.borderColor = TYPE_COLORS[bt];
+                    } else {
+                        btn.style.backgroundColor = "";
+                        btn.style.color = "";
+                        btn.style.borderColor = "";
+                    }
+                } else {
+                    btn.classList.remove("dg-filter-active");
+                    btn.style.backgroundColor = "";
+                    btn.style.color = "";
+                    btn.style.borderColor = "";
+                }
+            }
+
+            renderExtList();
         });
     }
 
-    // ── Detail close ────────────────────────────────────────────────
-    var closeBtn = document.getElementById("dgDetailClose");
-    if (closeBtn) {
-        closeBtn.addEventListener("click", function (evt) {
-            evt.stopPropagation();
-            deselectAll();
-            closeDetailPanel();
+    // ── Tab bar ─────────────────────────────────────────────────────
+    var tabBar = document.getElementById("dgTabBar");
+    if (tabBar) {
+        tabBar.addEventListener("click", function (evt) {
+            var target = evt.target;
+            while (target && !target.classList.contains("dg-tab")) {
+                if (target === tabBar) { target = null; break; }
+                target = target.parentElement;
+            }
+            if (!target) return;
+            var tab = target.getAttribute("data-tab");
+            if (tab) switchTab(tab);
+        });
+    }
+
+    // ── Required By list click ──────────────────────────────────────
+    var reqListEl = document.getElementById("dgReqList");
+    if (reqListEl) {
+        reqListEl.addEventListener("click", function (evt) {
+            var target = evt.target;
+            while (target && !target.classList.contains("dg-req-item")) {
+                if (target === reqListEl) { target = null; break; }
+                target = target.parentElement;
+            }
+            if (!target) return;
+            var id = target.getAttribute("data-id");
+            if (id) selectExtension(id);
+        });
+    }
+
+    // ── Install order list click (click to navigate) ────────────────
+    var orderListEl = document.getElementById("dgOrderList");
+    if (orderListEl) {
+        orderListEl.addEventListener("click", function (evt) {
+            var target = evt.target;
+            while (target && !target.classList.contains("dg-order-item")) {
+                if (target === orderListEl) { target = null; break; }
+                target = target.parentElement;
+            }
+            if (!target) return;
+            var id = target.getAttribute("data-id");
+            if (id && id !== selectedId) selectExtension(id);
         });
     }
 
     // ── Theme toggle ────────────────────────────────────────────────
     var themeBtn = document.getElementById("dgThemeToggle");
     if (themeBtn) {
-        themeBtn.addEventListener("click", function (evt) {
-            evt.stopPropagation();
-            toggleTheme();
-        });
+        themeBtn.addEventListener("click", function () { toggleTheme(); });
     }
 
     // ── Resize ──────────────────────────────────────────────────────
