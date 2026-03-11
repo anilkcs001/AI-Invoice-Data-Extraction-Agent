@@ -1,17 +1,22 @@
 /// <summary>
-/// Control Add-in that hosts an interactive vis.js-based dependency graph
-/// for visualizing extension relationships within Business Central.
+/// Control Add-in hosting an interactive vis.js dependency graph.
+/// 
+/// IMPORTANT BC Control Add-in rules:
+/// - "procedure" = AL can call JS (AL → JS direction)
+/// - "event"     = JS can call AL (JS → AL direction)
+/// - There is NO built-in "OnControlReady" trigger. Instead we define
+///   our own "OnReady" event that JS fires via InvokeExtensibilityMethod.
+/// - On the page, the usercontrol triggers are wired to the EVENTS, not procedures.
 /// </summary>
 controladdin DependencyGraph
 {
-    // The startup script loads vis.js from CDN, builds the DOM scaffold,
-    // and fires the OnReady callback once initialisation is complete.
+    // Startup script: builds DOM, loads vis.js from CDN, fires OnReady event
     StartupScript = 'src/controladdin/DependencyGraph/js/startup.js';
 
-    // Main application logic – graph rendering, filtering, detail panel.
+    // Main app logic: graph rendering, filtering, detail panel
     Scripts = 'src/controladdin/DependencyGraph/js/app.js';
 
-    // Dark-theme styling, frosted-glass panel, filter pills, dot-grid bg.
+    // Dark theme styles
     StyleSheets = 'src/controladdin/DependencyGraph/css/style.css';
 
     RequestedHeight = 600;
@@ -21,17 +26,26 @@ controladdin DependencyGraph
     VerticalStretch = true;
     HorizontalStretch = true;
 
-    // ── AL → JS procedures ──────────────────────────────────────────────
-    /// <summary>Sends the full nodes+edges JSON payload to the JS layer for rendering.</summary>
+    // ── AL → JS (procedures) ────────────────────────────────────────
+    // These become callable from AL via CurrPage.ControlName.ProcedureName()
+    // In JS, they appear as window.ProcedureName(args) functions
+
+    /// <summary>Sends the JSON payload containing nodes and edges to JS for rendering.</summary>
     procedure LoadGraph(JsonPayload: Text);
 
-    /// <summary>Programmatically highlights a specific node by its App ID.</summary>
+    /// <summary>Programmatically highlights a specific node by App ID.</summary>
     procedure HighlightNode(AppId: Text);
 
-    // ── JS → AL events (callbacks) ──────────────────────────────────────
-    /// <summary>Fired by JS once the control add-in DOM and vis.js are fully initialised.</summary>
+    // ── JS → AL (events) ────────────────────────────────────────────
+    // These are fired from JS via Microsoft.Dynamics.NAV.InvokeExtensibilityMethod()
+    // On the page, they appear as triggers inside the usercontrol block
+
+    /// <summary>
+    /// Fired by JS once vis.js is loaded and DOM is ready.
+    /// This is our replacement for the non-existent "OnControlReady".
+    /// </summary>
     event OnReady();
 
-    /// <summary>Fired when a user clicks a node in the graph.</summary>
+    /// <summary>Fired when the user clicks a node in the graph.</summary>
     event OnNodeSelected(AppId: Text; AppName: Text; Publisher: Text; Version: Text);
 }
