@@ -1,301 +1,350 @@
 /**
  * @file app.js
- * @description Clean two-panel dependency viewer.
+ * @description All logic for the dependency graph viewer.
  *
- * LEFT PANEL: Searchable, filterable list of all extensions.
- * RIGHT PANEL: For the selected extension, shows:
- *   - Installation Order (what to install first, in numbered steps)
- *   - Tree View (small, focused graph — ONLY this extension's chain)
- *   - Required By (which extensions depend on this one)
+ * CRITICAL: This file defines window.LoadGraph and window.HighlightNode.
+ * All event wiring happens INSIDE LoadGraph after data is loaded,
+ * because that is the first moment we are sure the DOM exists AND data is ready.
  *
- * No more 125-node spaghetti. One extension at a time. Clean and human.
+ * Flow:
+ *   1. startup.js builds DOM, loads vis.js, fires OnReady
+ *   2. AL receives OnReady, calls LoadGraph(json)
+ *   3. LoadGraph parses data, renders list, wires ALL events
  */
 (function () {
     "use strict";
 
-    // ═══════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
     // State
-    // ═══════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
     var allNodes = [];
     var allEdges = [];
     var nodeMap = {};
-    var depsOf = {};       // id → [ids this depends on]
-    var requiredBy = {};   // id → [ids that depend on this]
+    var depsOf = {};
+    var requiredBy = {};
     var selectedId = null;
     var activeFilter = "all";
     var searchText = "";
-    var isDarkMode = false;
-    var network = null;
+    var isDark = false;
     var activeTab = "order";
+    var network = null;
+    var eventsWired = false;
 
-    var TYPE_COLORS = {
+    var COLORS = {
         ms: "#3b82f6",
         isv: "#10b981",
         custom: "#f43f5e",
         ext: "#8b5cf6"
     };
-    var TYPE_LABELS = {
+    var LABELS = {
         ms: "Microsoft",
         isv: "ISV",
         custom: "Custom",
         ext: "3rd Party"
     };
 
-    // ═══════════════════════════════════════════════════════════════════
-    // window.LoadGraph — called by AL
-    // ═══════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
+    // window.LoadGraph — called from AL
+    // ═══════════════════════════════════════════════════════════════
     window.LoadGraph = function (jsonPayload) {
         var data;
-        try { data = JSON.parse(jsonPayload); }
-        catch (e) { return; }
-
-        if (!data || !data.nodes) return;
+        try {
+            data = JSON.parse(jsonPayload);
+        } catch (e) {
+            console.error("LoadGraph parse error:", e);
+            return;
+        }
+        if (!data || !data.nodes) {
+            console.error("LoadGraph: no nodes");
+            return;
+        }
         if (!data.edges) data.edges = [];
 
-        allNodes = data.nodes;
-        allEdges = data.edges;
+        allNodes = data.nodes || [];
+        allEdges = data.edges || [];
 
         // Build lookups
         nodeMap = {};
         depsOf = {};
         requiredBy = {};
-
-        var i;
+        var i, n, e;
         for (i = 0; i < allNodes.length; i++) {
-            nodeMap[allNodes[i].id] = allNodes[i];
-            depsOf[allNodes[i].id] = [];
-            requiredBy[allNodes[i].id] = [];
+            n = allNodes[i];
+            nodeMap[n.id] = n;
+            depsOf[n.id] = [];
+            requiredBy[n.id] = [];
         }
         for (i = 0; i < allEdges.length; i++) {
-            var e = allEdges[i];
+            e = allEdges[i];
             if (depsOf[e.from]) depsOf[e.from].push(e.to);
             if (requiredBy[e.to]) requiredBy[e.to].push(e.from);
         }
 
-        // Sort nodes alphabetically
+        // Sort alphabetically
         allNodes.sort(function (a, b) {
-            return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+            return (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase());
         });
 
-        // Update stats
-        var stat = document.getElementById("dgStatTotalNum");
-        if (stat) stat.textContent = String(allNodes.length);
+        // Update count
+        var statEl = document.getElementById("dgStatNum");
+        if (statEl) statEl.textContent = String(allNodes.length);
 
-        // Render list
+        // Reset state
         selectedId = null;
-        renderExtList();
-        showEmptyState();
+        activeFilter = "all";
+        searchText = "";
+        activeTab = "order";
+
+        // Clear search
+        var searchEl = document.getElementById("dgSearch");
+        if (searchEl) searchEl.value = "";
+
+        // Reset filter buttons
+        resetFilterButtons("all");
+
+        // Render the list
+        renderList();
+
+        // Show placeholder, hide detail
+        showPlaceholder();
+
+        // Wire events (only once)
+        if (!eventsWired) {
+            wireEvents();
+            eventsWired = true;
+        }
     };
 
-    // ═══════════════════════════════════════════════════════════════════
-    // window.HighlightNode — called by AL
-    // ═══════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
+    // window.HighlightNode — called from AL
+    // ═══════════════════════════════════════════════════════════════
     window.HighlightNode = function (appId) {
-        if (!appId || !nodeMap[appId]) return;
-        selectExtension(appId);
+        if (appId && nodeMap[appId]) {
+            doSelect(appId);
+        }
     };
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Extension List (left panel)
-    // ═══════════════════════════════════════════════════════════════════
-
-    function renderExtList() {
+    // ═══════════════════════════════════════════════════════════════
+    // RENDER THE EXTENSION LIST
+    // ═══════════════════════════════════════════════════════════════
+    function renderList() {
         var container = document.getElementById("dgExtList");
         if (!container) return;
 
-        var filtered = allNodes.filter(function (n) {
-            // Filter by type
-            if (activeFilter !== "all" && n.type !== activeFilter) return false;
-            // Filter by search
-            if (searchText) {
-                var q = searchText.toLowerCase();
-                if (n.name.toLowerCase().indexOf(q) === -1 &&
-                    n.publisher.toLowerCase().indexOf(q) === -1) return false;
+        var filtered = [];
+        var i, n, q;
+        q = searchText.toLowerCase();
+
+        for (i = 0; i < allNodes.length; i++) {
+            n = allNodes[i];
+            // Type filter
+            if (activeFilter !== "all" && n.type !== activeFilter) continue;
+            // Search filter
+            if (q !== "") {
+                var nameMatch = (n.name || "").toLowerCase().indexOf(q) !== -1;
+                var pubMatch = (n.publisher || "").toLowerCase().indexOf(q) !== -1;
+                if (!nameMatch && !pubMatch) continue;
             }
-            return true;
-        });
+            filtered.push(n);
+        }
 
         if (filtered.length === 0) {
-            container.innerHTML = '<div class="dg-ext-list-empty">No extensions match your search</div>';
+            container.innerHTML = '<div class="dg-empty-list">No extensions found</div>';
             return;
         }
 
-        var html = [];
-        for (var i = 0; i < filtered.length; i++) {
-            var n = filtered[i];
+        var html = "";
+        for (i = 0; i < filtered.length; i++) {
+            n = filtered[i];
             var isActive = (n.id === selectedId);
-            var depCount = (depsOf[n.id] || []).length;
-            var reqCount = (requiredBy[n.id] || []).length;
+            var dc = (depsOf[n.id] || []).length;
+            var rc = (requiredBy[n.id] || []).length;
+            var col = COLORS[n.type] || COLORS.ext;
 
-            html.push(
-                '<button class="dg-ext-item' + (isActive ? ' dg-ext-item-active' : '') + '" data-id="' + n.id + '">',
-                '  <span class="dg-ext-dot" style="background:' + (TYPE_COLORS[n.type] || '#8b5cf6') + '"></span>',
-                '  <div class="dg-ext-info">',
-                '    <div class="dg-ext-name">' + escapeHtml(n.name) + '</div>',
-                '    <div class="dg-ext-sub">' + escapeHtml(n.publisher) + ' &middot; v' + escapeHtml(n.version) + '</div>',
-                '  </div>',
-                '  <div class="dg-ext-badges">',
-                (depCount > 0 ? '<span class="dg-ext-badge" title="Dependencies">' + depCount + ' dep' + (depCount > 1 ? 's' : '') + '</span>' : ''),
-                (reqCount > 0 ? '<span class="dg-ext-badge dg-ext-badge-req" title="Required by">' + reqCount + ' req</span>' : ''),
-                '  </div>',
-                '</button>'
-            );
+            html += '<div class="dg-item' + (isActive ? ' dg-item-on' : '') + '" data-id="' + esc(n.id) + '">';
+            html += '<span class="dg-dot" style="background:' + col + '"></span>';
+            html += '<div class="dg-item-info">';
+            html += '<div class="dg-item-name">' + esc(n.name) + '</div>';
+            html += '<div class="dg-item-sub">' + esc(n.publisher) + ' · v' + esc(n.version) + '</div>';
+            html += '</div>';
+            html += '<div class="dg-item-right">';
+            if (dc > 0) html += '<span class="dg-badge-dep">' + dc + ' dep</span>';
+            if (rc > 0) html += '<span class="dg-badge-req">' + rc + ' req</span>';
+            html += '</div>';
+            html += '</div>';
         }
 
-        container.innerHTML = html.join("");
+        container.innerHTML = html;
     }
 
-    function selectExtension(id) {
+    // ═══════════════════════════════════════════════════════════════
+    // SELECT AN EXTENSION
+    // ═══════════════════════════════════════════════════════════════
+    function doSelect(id) {
         if (!nodeMap[id]) return;
         selectedId = id;
-        renderExtList(); // Re-render to show active state
 
-        // Scroll the selected item into view
-        var activeItem = document.querySelector('.dg-ext-item-active');
-        if (activeItem) {
-            activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
+        // Re-render list to show active highlight
+        renderList();
 
-        showDepView(id);
+        // Scroll active item into view
+        setTimeout(function () {
+            var activeEl = document.querySelector('.dg-item-on');
+            if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 50);
 
-        // Fire callback to AL
-        var node = nodeMap[id];
+        // Show detail panel
+        showDetail(id);
+
+        // Fire AL callback
+        var nd = nodeMap[id];
         try {
             Microsoft.Dynamics.NAV.InvokeExtensibilityMethod("OnNodeSelected", [
-                node.id || "", node.name || "", node.publisher || "", node.version || ""
+                nd.id || "", nd.name || "", nd.publisher || "", nd.version || ""
             ]);
-        } catch (ex) { /* ignore */ }
+        } catch (ex) { /* ok */ }
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Dependency View (right panel)
-    // ═══════════════════════════════════════════════════════════════════
-
-    function showEmptyState() {
-        var empty = document.getElementById("dgEmptyState");
-        var view = document.getElementById("dgDepView");
-        if (empty) empty.style.display = "flex";
-        if (view) view.style.display = "none";
+    // ═══════════════════════════════════════════════════════════════
+    // SHOW / HIDE PANELS
+    // ═══════════════════════════════════════════════════════════════
+    function showPlaceholder() {
+        var ph = document.getElementById("dgPlaceholder");
+        var det = document.getElementById("dgDetail");
+        if (ph) ph.style.display = "flex";
+        if (det) det.style.display = "none";
     }
 
-    function showDepView(id) {
-        var empty = document.getElementById("dgEmptyState");
-        var view = document.getElementById("dgDepView");
-        if (empty) empty.style.display = "none";
-        if (view) view.style.display = "flex";
+    function showDetail(id) {
+        var ph = document.getElementById("dgPlaceholder");
+        var det = document.getElementById("dgDetail");
+        if (ph) ph.style.display = "none";
+        if (det) det.style.display = "flex";
 
-        var node = nodeMap[id];
-        if (!node) return;
+        var nd = nodeMap[id];
+        if (!nd) return;
 
         // Header
-        setTextById("dgDepName", node.name);
-        setTextById("dgDepPublisher", node.publisher);
-        setTextById("dgDepVersion", "v" + node.version);
+        setText("dgDetName", nd.name);
+        setText("dgDetPub", nd.publisher);
+        setText("dgDetVer", "v" + nd.version);
 
-        var typeEl = document.getElementById("dgDepType");
+        var typeEl = document.getElementById("dgDetType");
         if (typeEl) {
-            typeEl.textContent = TYPE_LABELS[node.type] || "Extension";
-            typeEl.style.backgroundColor = TYPE_COLORS[node.type] || TYPE_COLORS.ext;
+            typeEl.textContent = LABELS[nd.type] || "Extension";
+            typeEl.style.backgroundColor = COLORS[nd.type] || COLORS.ext;
         }
 
-        // Show active tab content
-        switchTab(activeTab);
+        // Reset to install order tab
+        activeTab = "order";
+        resetTabButtons("order");
+        renderTabContent();
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Tab: Installation Order
-    // ═══════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
+    // TAB CONTENT RENDERING
+    // ═══════════════════════════════════════════════════════════════
+    function renderTabContent() {
+        var body = document.getElementById("dgTabBody");
+        if (!body || !selectedId) return;
 
-    /**
-     * Computes the full installation order using topological sort (BFS/DFS).
-     * Returns an array of node ids in the order they should be installed
-     * (deepest dependency first, selected extension last).
-     */
+        if (activeTab === "order") {
+            renderInstallOrder(body);
+        } else if (activeTab === "tree") {
+            renderTreeView(body);
+        } else if (activeTab === "depby") {
+            renderRequiredBy(body);
+        }
+    }
+
+    // ── Install Order ───────────────────────────────────────────
     function getInstallOrder(rootId) {
         var visited = {};
-        var order = [];
+        var result = [];
 
         function dfs(id) {
             if (visited[id]) return;
             visited[id] = true;
             var deps = depsOf[id] || [];
             for (var i = 0; i < deps.length; i++) {
-                if (nodeMap[deps[i]]) {
-                    dfs(deps[i]);
-                }
+                if (nodeMap[deps[i]]) dfs(deps[i]);
             }
-            order.push(id);
+            result.push(id);
         }
 
         dfs(rootId);
-        return order;
+        return result;
     }
 
-    function renderInstallOrder() {
-        if (!selectedId) return;
-
+    function renderInstallOrder(container) {
         var order = getInstallOrder(selectedId);
-        var infoEl = document.getElementById("dgOrderInfo");
-        var listEl = document.getElementById("dgOrderList");
-        if (!infoEl || !listEl) return;
+
+        var html = '';
 
         if (order.length <= 1) {
-            infoEl.textContent = "This extension has no dependencies. Install it directly.";
-            listEl.innerHTML = renderOrderItem(selectedId, 1, order.length, true);
-            return;
+            html += '<div class="dg-info-msg">This extension has no dependencies. Install it directly.</div>';
+            html += buildOrderCard(selectedId, 1, 1, true);
+        } else {
+            html += '<div class="dg-info-msg">Install these <strong>' + order.length + '</strong> extensions in this order:</div>';
+            for (var i = 0; i < order.length; i++) {
+                html += buildOrderCard(order[i], i + 1, order.length, order[i] === selectedId);
+            }
         }
 
-        infoEl.textContent = "Install these " + order.length + " extensions in order (first to last):";
+        container.innerHTML = html;
 
-        var html = [];
-        for (var i = 0; i < order.length; i++) {
-            var isRoot = (order[i] === selectedId);
-            html.push(renderOrderItem(order[i], i + 1, order.length, isRoot));
+        // Wire clicks on order items
+        var items = container.querySelectorAll('.dg-ord');
+        for (var j = 0; j < items.length; j++) {
+            items[j].addEventListener('click', (function (el) {
+                return function () {
+                    var nid = el.getAttribute('data-id');
+                    if (nid && nid !== selectedId) doSelect(nid);
+                };
+            })(items[j]));
         }
-        listEl.innerHTML = html.join("");
     }
 
-    function renderOrderItem(id, step, total, isRoot) {
-        var n = nodeMap[id];
-        if (!n) return "";
+    function buildOrderCard(id, step, total, isRoot) {
+        var nd = nodeMap[id];
+        if (!nd) return '';
+        var col = COLORS[nd.type] || COLORS.ext;
+        var isLast = (step === total);
 
-        var color = TYPE_COLORS[n.type] || TYPE_COLORS.ext;
-        var depCount = (depsOf[id] || []).length;
+        var s = '';
+        s += '<div class="dg-ord' + (isRoot ? ' dg-ord-root' : '') + '" data-id="' + esc(id) + '">';
 
-        return [
-            '<div class="dg-order-item' + (isRoot ? ' dg-order-item-root' : '') + '" data-id="' + id + '">',
-            '  <div class="dg-order-step">' + step + '</div>',
-            '  <div class="dg-order-line' + (step === total ? ' dg-order-line-last' : '') + '"></div>',
-            '  <div class="dg-order-card">',
-            '    <div class="dg-order-card-top">',
-            '      <span class="dg-order-dot" style="background:' + color + '"></span>',
-            '      <span class="dg-order-name">' + escapeHtml(n.name) + '</span>',
-            '      <span class="dg-order-type" style="background:' + color + '">' + (TYPE_LABELS[n.type] || "Ext") + '</span>',
-            '    </div>',
-            '    <div class="dg-order-card-bottom">',
-            '      <span>' + escapeHtml(n.publisher) + '</span>',
-            '      <span>v' + escapeHtml(n.version) + '</span>',
-            (depCount > 0 ? '<span>' + depCount + ' dep' + (depCount > 1 ? 's' : '') + '</span>' : ''),
-            '    </div>',
-            (isRoot ? '<div class="dg-order-root-label">&#9733; Selected Extension</div>' : ''),
-            '  </div>',
-            '</div>'
-        ].join("");
+        // Left: step + line
+        s += '<div class="dg-ord-left">';
+        s += '<div class="dg-ord-num' + (isRoot ? ' dg-ord-num-root' : '') + '">' + step + '</div>';
+        if (!isLast) {
+            s += '<div class="dg-ord-line"></div>';
+        }
+        s += '</div>';
+
+        // Right: card
+        s += '<div class="dg-ord-card' + (isRoot ? ' dg-ord-card-root' : '') + '">';
+        s += '<div class="dg-ord-row1">';
+        s += '<span class="dg-dot" style="background:' + col + '"></span>';
+        s += '<span class="dg-ord-name">' + esc(nd.name) + '</span>';
+        s += '<span class="dg-type-pill" style="background:' + col + '">' + (LABELS[nd.type] || 'Ext') + '</span>';
+        s += '</div>';
+        s += '<div class="dg-ord-row2">' + esc(nd.publisher) + ' · v' + esc(nd.version) + '</div>';
+        if (isRoot) s += '<div class="dg-ord-star">★ Selected Extension</div>';
+        s += '</div>';
+
+        s += '</div>';
+        return s;
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Tab: Tree View (focused graph — only the selected extension's deps)
-    // ═══════════════════════════════════════════════════════════════════
+    // ── Tree View ───────────────────────────────────────────────
+    function renderTreeView(container) {
+        container.innerHTML = '<div id="dgTreeCanvas" class="dg-tree-canvas"></div>';
 
-    function renderTreeView() {
-        if (!selectedId) return;
-
-        var container = document.getElementById("dgTreeGraph");
-        if (!container) return;
-
+        // Destroy old network
         if (network) { network.destroy(); network = null; }
 
-        // Get all nodes in the dependency chain
+        // Collect chain nodes (all deps recursively + one level of requiredBy)
         var chainIds = {};
         function collectDeps(id) {
             if (chainIds[id]) return;
@@ -307,74 +356,73 @@
         }
         collectDeps(selectedId);
 
-        // Also include nodes that directly depend on this (one level up)
-        var reqBy = requiredBy[selectedId] || [];
-        for (var r = 0; r < reqBy.length; r++) {
-            if (nodeMap[reqBy[r]]) chainIds[reqBy[r]] = true;
+        // Also show who requires this (one level up)
+        var reqs = requiredBy[selectedId] || [];
+        for (var r = 0; r < reqs.length; r++) {
+            if (nodeMap[reqs[r]]) chainIds[reqs[r]] = true;
+        }
+
+        var ids = Object.keys(chainIds);
+        if (ids.length === 0) {
+            container.innerHTML = '<div class="dg-info-msg">No dependency tree to display.</div>';
+            return;
         }
 
         // Build vis nodes
         var visNodes = [];
-        var ids = Object.keys(chainIds);
         for (var i = 0; i < ids.length; i++) {
-            var n = nodeMap[ids[i]];
-            if (!n) continue;
+            var nd = nodeMap[ids[i]];
+            if (!nd) continue;
             var isRoot = (ids[i] === selectedId);
-            var baseColor = TYPE_COLORS[n.type] || TYPE_COLORS.ext;
+            var baseCol = COLORS[nd.type] || COLORS.ext;
 
             visNodes.push({
-                id: n.id,
-                label: truncate(n.name, 28),
-                title: n.name + "\n" + n.publisher + "\nv" + n.version,
+                id: nd.id,
+                label: trunc(nd.name, 26),
+                title: nd.name + '\n' + nd.publisher + '\nv' + nd.version,
+                shape: "box",
                 color: {
-                    background: isRoot ? "#f59e0b" : (isDarkMode ? darkenColor(baseColor, 0.7) : lightenColor(baseColor, 0.88)),
-                    border: isRoot ? "#d97706" : baseColor,
+                    background: isRoot ? "#f59e0b" : (isDark ? darken(baseCol, 0.65) : lighten(baseCol, 0.85)),
+                    border: isRoot ? "#d97706" : baseCol,
                     highlight: { background: "#f59e0b", border: "#d97706" }
                 },
                 font: {
-                    color: isRoot ? "#fff" : (isDarkMode ? "#e2e8f0" : "#1e293b"),
-                    size: isRoot ? 13 : 12,
-                    face: "'Inter', sans-serif",
-                    bold: isRoot ? { color: "#fff" } : undefined
+                    color: isRoot ? "#fff" : (isDark ? "#e2e8f0" : "#1e293b"),
+                    size: 12,
+                    face: "'Inter', sans-serif"
                 },
                 borderWidth: isRoot ? 3 : 2,
-                shape: "box",
                 margin: { top: 8, bottom: 8, left: 12, right: 12 },
-                shadow: isRoot ? { enabled: true, color: "rgba(245,158,11,0.3)", size: 12 } : { enabled: true, color: "rgba(0,0,0,0.06)", size: 4 },
-                widthConstraint: { minimum: 100, maximum: 220 }
+                shadow: { enabled: true, color: isRoot ? "rgba(245,158,11,0.25)" : "rgba(0,0,0,0.06)", size: isRoot ? 12 : 4 },
+                widthConstraint: { minimum: 90, maximum: 200 }
             });
         }
 
-        // Build vis edges (only for nodes in the chain)
+        // Build vis edges
         var visEdges = [];
-        var edgeIdx = 0;
+        var eidx = 0;
         for (var j = 0; j < allEdges.length; j++) {
-            var e = allEdges[j];
-            if (chainIds[e.from] && chainIds[e.to]) {
+            var edge = allEdges[j];
+            if (chainIds[edge.from] && chainIds[edge.to]) {
                 visEdges.push({
-                    id: "e" + edgeIdx++,
-                    from: e.from,
-                    to: e.to,
+                    id: "e" + eidx++,
+                    from: edge.from,
+                    to: edge.to,
                     arrows: "to",
-                    color: {
-                        color: isDarkMode ? "rgba(148,163,184,0.35)" : "rgba(100,116,139,0.3)",
-                        highlight: "#f59e0b"
-                    },
+                    color: { color: isDark ? "rgba(148,163,184,0.3)" : "rgba(100,116,139,0.35)", highlight: "#f59e0b" },
                     width: 1.5,
                     smooth: { type: "cubicBezier", forceDirection: "vertical", roundness: 0.4 }
                 });
             }
         }
 
-        if (visNodes.length === 0) {
-            container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--dg-text-muted);font-size:14px;">No dependency tree to display</div>';
-            return;
-        }
+        var treeContainer = document.getElementById("dgTreeCanvas");
+        if (!treeContainer) return;
 
-        var nodesDS = new vis.DataSet(visNodes);
-        var edgesDS = new vis.DataSet(visEdges);
+        var nds = new vis.DataSet(visNodes);
+        var eds = new vis.DataSet(visEdges);
 
-        var options = {
+        network = new vis.Network(treeContainer, { nodes: nds, edges: eds }, {
             autoResize: true,
             layout: {
                 hierarchical: {
@@ -382,42 +430,23 @@
                     direction: "UD",
                     sortMethod: "directed",
                     levelSeparation: 90,
-                    nodeSpacing: 160,
+                    nodeSpacing: 150,
                     treeSpacing: 200,
-                    blockShifting: true,
-                    edgeMinimization: true,
                     parentCentralization: true,
                     shakeTowards: "roots"
                 }
             },
             physics: { enabled: false },
-            interaction: {
-                hover: true,
-                zoomView: true,
-                dragView: true,
-                dragNodes: false
-            },
-            nodes: {
-                shape: "box",
-                font: { size: 12, face: "'Inter', sans-serif" },
-                borderWidth: 2,
-                margin: { top: 8, bottom: 8, left: 12, right: 12 }
-            },
-            edges: {
-                arrows: { to: { enabled: true, scaleFactor: 0.6 } },
-                smooth: { type: "cubicBezier", forceDirection: "vertical", roundness: 0.4 }
-            }
-        };
+            interaction: { hover: true, zoomView: true, dragView: true, dragNodes: false },
+            nodes: { shape: "box", borderWidth: 2, margin: 8 },
+            edges: { arrows: { to: { enabled: true, scaleFactor: 0.6 } } }
+        });
 
-        network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, options);
-
-        // Click a node in tree → select that extension
+        // Click node in tree → navigate to that extension
         network.on("click", function (params) {
             if (params.nodes && params.nodes.length > 0) {
-                var clickedId = params.nodes[0];
-                if (clickedId !== selectedId) {
-                    selectExtension(clickedId);
-                }
+                var clicked = params.nodes[0];
+                if (clicked !== selectedId) doSelect(clicked);
             }
         });
 
@@ -426,268 +455,242 @@
         }, 200);
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Tab: Required By
-    // ═══════════════════════════════════════════════════════════════════
-
-    function renderRequiredBy() {
-        if (!selectedId) return;
-
+    // ── Required By ─────────────────────────────────────────────
+    function renderRequiredBy(container) {
         var reqs = (requiredBy[selectedId] || []).filter(function (id) { return !!nodeMap[id]; });
-        var infoEl = document.getElementById("dgReqInfo");
-        var listEl = document.getElementById("dgReqList");
-        if (!infoEl || !listEl) return;
 
         if (reqs.length === 0) {
-            infoEl.textContent = "No other extension depends on this one.";
-            listEl.innerHTML = "";
+            container.innerHTML = '<div class="dg-info-msg">No other extension depends on this one.</div>';
             return;
         }
 
-        // Sort alphabetically
         reqs.sort(function (a, b) {
             return (nodeMap[a].name || "").toLowerCase().localeCompare((nodeMap[b].name || "").toLowerCase());
         });
 
-        infoEl.textContent = reqs.length + " extension" + (reqs.length > 1 ? "s" : "") + " depend" + (reqs.length === 1 ? "s" : "") + " on this:";
+        var html = '<div class="dg-info-msg"><strong>' + reqs.length + '</strong> extension' + (reqs.length > 1 ? 's' : '') + ' depend' + (reqs.length === 1 ? 's' : '') + ' on this:</div>';
 
-        var html = [];
         for (var i = 0; i < reqs.length; i++) {
-            var n = nodeMap[reqs[i]];
-            if (!n) continue;
-            var color = TYPE_COLORS[n.type] || TYPE_COLORS.ext;
-            html.push(
-                '<button class="dg-req-item" data-id="' + n.id + '">',
-                '  <span class="dg-order-dot" style="background:' + color + '"></span>',
-                '  <div class="dg-req-info">',
-                '    <div class="dg-req-name">' + escapeHtml(n.name) + '</div>',
-                '    <div class="dg-req-sub">' + escapeHtml(n.publisher) + ' &middot; v' + escapeHtml(n.version) + '</div>',
-                '  </div>',
-                '  <span class="dg-order-type" style="background:' + color + '">' + (TYPE_LABELS[n.type] || "Ext") + '</span>',
-                '</button>'
-            );
-        }
-        listEl.innerHTML = html.join("");
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Tab switching
-    // ═══════════════════════════════════════════════════════════════════
-
-    function switchTab(tab) {
-        activeTab = tab;
-
-        // Update tab buttons
-        var tabs = document.querySelectorAll(".dg-tab");
-        for (var i = 0; i < tabs.length; i++) {
-            var t = tabs[i];
-            if (t.getAttribute("data-tab") === tab) {
-                t.classList.add("dg-tab-active");
-            } else {
-                t.classList.remove("dg-tab-active");
-            }
+            var nd = nodeMap[reqs[i]];
+            if (!nd) continue;
+            var col = COLORS[nd.type] || COLORS.ext;
+            html += '<div class="dg-reqitem" data-id="' + esc(nd.id) + '">';
+            html += '<span class="dg-dot" style="background:' + col + '"></span>';
+            html += '<div class="dg-reqitem-info">';
+            html += '<div class="dg-reqitem-name">' + esc(nd.name) + '</div>';
+            html += '<div class="dg-reqitem-sub">' + esc(nd.publisher) + ' · v' + esc(nd.version) + '</div>';
+            html += '</div>';
+            html += '<span class="dg-type-pill" style="background:' + col + '">' + (LABELS[nd.type] || 'Ext') + '</span>';
+            html += '</div>';
         }
 
-        // Show/hide content
-        var orderEl = document.getElementById("dgTabOrder");
-        var treeEl = document.getElementById("dgTabTree");
-        var reqEl = document.getElementById("dgTabRequiredBy");
+        container.innerHTML = html;
 
-        if (orderEl) orderEl.style.display = (tab === "order") ? "block" : "none";
-        if (treeEl) treeEl.style.display = (tab === "tree") ? "block" : "none";
-        if (reqEl) reqEl.style.display = (tab === "requiredby") ? "block" : "none";
-
-        // Render content for active tab
-        if (tab === "order") renderInstallOrder();
-        if (tab === "tree") {
-            // Small delay to let container become visible before rendering
-            setTimeout(renderTreeView, 50);
-        }
-        if (tab === "requiredby") renderRequiredBy();
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Theme Toggle
-    // ═══════════════════════════════════════════════════════════════════
-
-    function toggleTheme() {
-        isDarkMode = !isDarkMode;
-        var root = document.querySelector(".dg-root");
-        if (root) {
-            root.classList.toggle("dg-dark", isDarkMode);
-            root.classList.toggle("dg-light", !isDarkMode);
-        }
-        var icon = document.getElementById("dgThemeIcon");
-        if (icon) icon.innerHTML = isDarkMode ? "&#9788;" : "&#9790;";
-
-        // Re-render tree if visible
-        if (activeTab === "tree" && selectedId) {
-            setTimeout(renderTreeView, 100);
+        // Wire clicks
+        var items = container.querySelectorAll('.dg-reqitem');
+        for (var j = 0; j < items.length; j++) {
+            items[j].addEventListener('click', (function (el) {
+                return function () {
+                    var nid = el.getAttribute('data-id');
+                    if (nid) doSelect(nid);
+                };
+            })(items[j]));
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Utilities
-    // ═══════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
+    // EVENT WIRING — called once, after DOM is confirmed to exist
+    // ═══════════════════════════════════════════════════════════════
+    function wireEvents() {
 
-    function setTextById(id, text) {
-        var el = document.getElementById(id);
-        if (el) el.textContent = text || "";
-    }
-
-    function escapeHtml(str) {
-        if (!str) return "";
-        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    }
-
-    function truncate(str, max) {
-        if (!str) return "";
-        return str.length > max ? str.substring(0, max - 1) + "\u2026" : str;
-    }
-
-    function lightenColor(hex, factor) {
-        if (!hex || hex.charAt(0) !== "#") return hex;
-        var num = parseInt(hex.slice(1), 16);
-        var r = Math.round(((num >> 16) & 0xff) + (255 - ((num >> 16) & 0xff)) * factor);
-        var g = Math.round(((num >> 8) & 0xff) + (255 - ((num >> 8) & 0xff)) * factor);
-        var b = Math.round((num & 0xff) + (255 - (num & 0xff)) * factor);
-        return "rgb(" + r + "," + g + "," + b + ")";
-    }
-
-    function darkenColor(hex, factor) {
-        if (!hex || hex.charAt(0) !== "#") return hex;
-        var num = parseInt(hex.slice(1), 16);
-        var r = Math.round(((num >> 16) & 0xff) * factor);
-        var g = Math.round(((num >> 8) & 0xff) * factor);
-        var b = Math.round((num & 0xff) * factor);
-        return "rgb(" + r + "," + g + "," + b + ")";
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Event Wiring
-    // ═══════════════════════════════════════════════════════════════════
-
-    // ── Extension list click ────────────────────────────────────────
-    var extListEl = document.getElementById("dgExtList");
-    if (extListEl) {
-        extListEl.addEventListener("click", function (evt) {
-            var target = evt.target;
-            while (target && !target.classList.contains("dg-ext-item")) {
-                if (target === extListEl) { target = null; break; }
-                target = target.parentElement;
-            }
-            if (!target) return;
-            var id = target.getAttribute("data-id");
-            if (id) selectExtension(id);
-        });
-    }
-
-    // ── Search ──────────────────────────────────────────────────────
-    var searchEl = document.getElementById("dgSearch");
-    if (searchEl) {
-        searchEl.addEventListener("input", function () {
-            searchText = searchEl.value.trim();
-            renderExtList();
-        });
-    }
-
-    // ── Filter buttons ──────────────────────────────────────────────
-    var filterRow = document.getElementById("dgFilterRow");
-    if (filterRow) {
-        filterRow.addEventListener("click", function (evt) {
-            var target = evt.target;
-            while (target && !target.classList.contains("dg-filter-btn")) {
-                if (target === filterRow) { target = null; break; }
-                target = target.parentElement;
-            }
-            if (!target) return;
-            var type = target.getAttribute("data-type");
-            if (!type || type === activeFilter) return;
-
-            activeFilter = type;
-
-            // Update active state
-            var btns = filterRow.querySelectorAll(".dg-filter-btn");
-            for (var i = 0; i < btns.length; i++) {
-                var btn = btns[i];
-                var bt = btn.getAttribute("data-type");
-                if (bt === type) {
-                    btn.classList.add("dg-filter-active");
-                    if (bt !== "all" && TYPE_COLORS[bt]) {
-                        btn.style.backgroundColor = TYPE_COLORS[bt];
-                        btn.style.color = "#fff";
-                        btn.style.borderColor = TYPE_COLORS[bt];
-                    } else {
-                        btn.style.backgroundColor = "";
-                        btn.style.color = "";
-                        btn.style.borderColor = "";
+        // ── Extension list click (event delegation) ─────────────
+        var listEl = document.getElementById("dgExtList");
+        if (listEl) {
+            listEl.addEventListener("click", function (evt) {
+                var target = evt.target;
+                var maxUp = 10;
+                while (target && maxUp > 0) {
+                    if (target.classList && target.classList.contains("dg-item")) {
+                        var id = target.getAttribute("data-id");
+                        if (id) doSelect(id);
+                        return;
                     }
+                    if (target === listEl) return;
+                    target = target.parentElement;
+                    maxUp--;
+                }
+            });
+        }
+
+        // ── Search input ────────────────────────────────────────
+        var searchEl = document.getElementById("dgSearch");
+        if (searchEl) {
+            searchEl.addEventListener("input", function () {
+                searchText = (searchEl.value || "").trim();
+                renderList();
+            });
+            // Also handle paste
+            searchEl.addEventListener("paste", function () {
+                setTimeout(function () {
+                    searchText = (searchEl.value || "").trim();
+                    renderList();
+                }, 10);
+            });
+        }
+
+        // ── Filter buttons ──────────────────────────────────────
+        var filterRow = document.getElementById("dgFilterRow");
+        if (filterRow) {
+            filterRow.addEventListener("click", function (evt) {
+                var target = evt.target;
+                var maxUp = 5;
+                while (target && maxUp > 0) {
+                    if (target.classList && target.classList.contains("dg-fbtn")) {
+                        var type = target.getAttribute("data-type");
+                        if (type && type !== activeFilter) {
+                            activeFilter = type;
+                            resetFilterButtons(type);
+                            renderList();
+                        }
+                        return;
+                    }
+                    if (target === filterRow) return;
+                    target = target.parentElement;
+                    maxUp--;
+                }
+            });
+        }
+
+        // ── Tab buttons ─────────────────────────────────────────
+        var tabsEl = document.getElementById("dgTabs");
+        if (tabsEl) {
+            tabsEl.addEventListener("click", function (evt) {
+                var target = evt.target;
+                var maxUp = 5;
+                while (target && maxUp > 0) {
+                    if (target.classList && target.classList.contains("dg-tab")) {
+                        var tab = target.getAttribute("data-tab");
+                        if (tab && tab !== activeTab) {
+                            activeTab = tab;
+                            resetTabButtons(tab);
+                            renderTabContent();
+                        }
+                        return;
+                    }
+                    if (target === tabsEl) return;
+                    target = target.parentElement;
+                    maxUp--;
+                }
+            });
+        }
+
+        // ── Theme toggle ────────────────────────────────────────
+        var themeBtn = document.getElementById("dgThemeToggle");
+        if (themeBtn) {
+            themeBtn.addEventListener("click", function () {
+                isDark = !isDark;
+                var root = document.querySelector(".dg-root");
+                if (root) {
+                    if (isDark) {
+                        root.classList.remove("dg-light");
+                        root.classList.add("dg-dark");
+                    } else {
+                        root.classList.remove("dg-dark");
+                        root.classList.add("dg-light");
+                    }
+                }
+                var icon = document.getElementById("dgThemeIcon");
+                if (icon) icon.innerHTML = isDark ? "&#9788;" : "&#9790;";
+
+                // Re-render tree if active
+                if (activeTab === "tree" && selectedId) {
+                    var body = document.getElementById("dgTabBody");
+                    if (body) {
+                        setTimeout(function () { renderTreeView(body); }, 50);
+                    }
+                }
+            });
+        }
+
+        // ── Window resize ───────────────────────────────────────
+        window.addEventListener("resize", function () {
+            if (network) setTimeout(function () { network.redraw(); }, 100);
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // HELPERS
+    // ═══════════════════════════════════════════════════════════════
+
+    function resetFilterButtons(type) {
+        var btns = document.querySelectorAll(".dg-fbtn");
+        for (var i = 0; i < btns.length; i++) {
+            var btn = btns[i];
+            var bt = btn.getAttribute("data-type");
+            if (bt === type) {
+                btn.classList.add("dg-fbtn-on");
+                if (bt !== "all" && COLORS[bt]) {
+                    btn.style.backgroundColor = COLORS[bt];
+                    btn.style.color = "#fff";
+                    btn.style.borderColor = COLORS[bt];
                 } else {
-                    btn.classList.remove("dg-filter-active");
                     btn.style.backgroundColor = "";
                     btn.style.color = "";
                     btn.style.borderColor = "";
                 }
+            } else {
+                btn.classList.remove("dg-fbtn-on");
+                btn.style.backgroundColor = "";
+                btn.style.color = "";
+                btn.style.borderColor = "";
             }
-
-            renderExtList();
-        });
+        }
     }
 
-    // ── Tab bar ─────────────────────────────────────────────────────
-    var tabBar = document.getElementById("dgTabBar");
-    if (tabBar) {
-        tabBar.addEventListener("click", function (evt) {
-            var target = evt.target;
-            while (target && !target.classList.contains("dg-tab")) {
-                if (target === tabBar) { target = null; break; }
-                target = target.parentElement;
+    function resetTabButtons(tab) {
+        var tabs = document.querySelectorAll(".dg-tab");
+        for (var i = 0; i < tabs.length; i++) {
+            if (tabs[i].getAttribute("data-tab") === tab) {
+                tabs[i].classList.add("dg-tab-on");
+            } else {
+                tabs[i].classList.remove("dg-tab-on");
             }
-            if (!target) return;
-            var tab = target.getAttribute("data-tab");
-            if (tab) switchTab(tab);
-        });
+        }
     }
 
-    // ── Required By list click ──────────────────────────────────────
-    var reqListEl = document.getElementById("dgReqList");
-    if (reqListEl) {
-        reqListEl.addEventListener("click", function (evt) {
-            var target = evt.target;
-            while (target && !target.classList.contains("dg-req-item")) {
-                if (target === reqListEl) { target = null; break; }
-                target = target.parentElement;
-            }
-            if (!target) return;
-            var id = target.getAttribute("data-id");
-            if (id) selectExtension(id);
-        });
+    function setText(id, val) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = val || "";
     }
 
-    // ── Install order list click (click to navigate) ────────────────
-    var orderListEl = document.getElementById("dgOrderList");
-    if (orderListEl) {
-        orderListEl.addEventListener("click", function (evt) {
-            var target = evt.target;
-            while (target && !target.classList.contains("dg-order-item")) {
-                if (target === orderListEl) { target = null; break; }
-                target = target.parentElement;
-            }
-            if (!target) return;
-            var id = target.getAttribute("data-id");
-            if (id && id !== selectedId) selectExtension(id);
-        });
+    function esc(str) {
+        if (!str) return "";
+        var d = document.createElement("div");
+        d.appendChild(document.createTextNode(str));
+        return d.innerHTML;
     }
 
-    // ── Theme toggle ────────────────────────────────────────────────
-    var themeBtn = document.getElementById("dgThemeToggle");
-    if (themeBtn) {
-        themeBtn.addEventListener("click", function () { toggleTheme(); });
+    function trunc(str, max) {
+        if (!str) return "";
+        return str.length > max ? str.substring(0, max - 1) + "\u2026" : str;
     }
 
-    // ── Resize ──────────────────────────────────────────────────────
-    window.addEventListener("resize", function () {
-        if (network) setTimeout(function () { network.redraw(); }, 150);
-    });
+    function lighten(hex, factor) {
+        if (!hex || hex[0] !== "#") return hex;
+        var n = parseInt(hex.slice(1), 16);
+        var r = Math.round(((n >> 16) & 0xff) + (255 - ((n >> 16) & 0xff)) * factor);
+        var g = Math.round(((n >> 8) & 0xff) + (255 - ((n >> 8) & 0xff)) * factor);
+        var b = Math.round((n & 0xff) + (255 - (n & 0xff)) * factor);
+        return "rgb(" + r + "," + g + "," + b + ")";
+    }
+
+    function darken(hex, factor) {
+        if (!hex || hex[0] !== "#") return hex;
+        var n = parseInt(hex.slice(1), 16);
+        return "rgb(" +
+            Math.round(((n >> 16) & 0xff) * factor) + "," +
+            Math.round(((n >> 8) & 0xff) * factor) + "," +
+            Math.round((n & 0xff) * factor) + ")";
+    }
 
 })();
