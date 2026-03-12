@@ -225,6 +225,7 @@
     display:flex; align-items:center; gap:0;
 }
 
+/* REPLACE WITH THIS: */
 .ia-ver-part {
     width:60px; padding:10px 8px;
     border:1px solid var(--input-border);
@@ -235,8 +236,14 @@
     font-size:16px; font-weight:700;
     text-align:center; outline:none;
     transition:border-color 0.2s, background 0.3s, color 0.3s;
-    -moz-appearance: textfield;
+    appearance: textfield;
 }
+.ia-ver-part::-webkit-inner-spin-button,
+.ia-ver-part::-webkit-outer-spin-button {
+    appearance: none;
+    margin:0;
+}
+.ia-ver-part:focus { border-color:var(--input-focus); }
 .ia-ver-part::-webkit-inner-spin-button,
 .ia-ver-part::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
 .ia-ver-part:focus { border-color:var(--input-focus); }
