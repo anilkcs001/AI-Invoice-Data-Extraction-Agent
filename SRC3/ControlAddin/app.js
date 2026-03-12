@@ -484,17 +484,15 @@
         s += '</div>';
 
         // Version range
-        var rangeText = "";
-        if (dep.minVersion && dep.maxVersion && dep.minVersion !== "0.0.0.0") {
-            if (dep.maxVersion === "0.0.0.0") {
-                rangeText = "Requires: ≥" + dep.minVersion + " (no max declared)";
+       var rangeText = "";
+        if (dep.minVersion && dep.minVersion !== "0.0.0.0" && dep.minVersion !== "") {
+            if (dep.maxVersion && dep.maxVersion !== "0.0.0.0" && dep.maxVersion !== "") {
+                rangeText = "Compiled against: v" + dep.minVersion + " — v" + dep.maxVersion;
             } else {
-                rangeText = "Requires: ≥" + dep.minVersion + " and ≤" + dep.maxVersion;
+                rangeText = "Compiled against: v" + dep.minVersion;
             }
-        } else if (dep.minVersion && dep.minVersion !== "0.0.0.0") {
-            rangeText = "Requires: ≥" + dep.minVersion;
         } else {
-            rangeText = "No version range declared";
+            rangeText = "Dependency version info not available";
         }
 
         s += '<div class="ia-dep-range">';
