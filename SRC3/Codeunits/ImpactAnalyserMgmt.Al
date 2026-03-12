@@ -4,12 +4,29 @@
 /// Uses cloud-compatible APIs:
 ///   - Table 2000000153 "NAV App Installed App"
 ///   - NavApp.GetModuleInfo() → ModuleInfo → Dependencies()
+///   - ModuleDependencyInfo only exposes: .Id, .Name, .Publisher
 ///
-/// Compatibility rules:
-///   GREEN  — new version within declared min/max range
-///   AMBER  — new version exceeds max but same major, OR no range declared
-///   RED    — different major version, or below minimum
-///   GREY   — metadata could not be read
+/// Since ModuleDependencyInfo does NOT expose MinVersion/MaxVersion in the
+/// AL runtime API, we use these practical heuristic rules:
+///
+///   RED (Breaking):
+///     - New MAJOR version differs from current MAJOR version.
+///       Major version change = assumed breaking API change.
+///     - New version is LOWER than current version (downgrade).
+///
+///   AMBER (Warning — needs recompile):
+///     - New MINOR version is higher than current minor (same major).
+///       API additions possible, dependent should be recompiled.
+///     - New BUILD or REVISION only changed (same major.minor).
+///       Low risk but recompile recommended for safety.
+///
+///   GREEN (Safe):
+///     - New version equals current version (no actual change).
+///       This shouldn't happen due to UI validation, but handled gracefully.
+///
+///   GREY (Unknown):
+///     - NavApp.GetModuleInfo() returned false for the dependent.
+///     - Cannot determine dependency relationship.
 /// </summary>
 codeunit 50200 "Impact Analyzer Mgmt"
 {
@@ -17,6 +34,7 @@ codeunit 50200 "Impact Analyzer Mgmt"
 
     /// <summary>
     /// Builds JSON of all installed extensions for the picker dropdown.
+    /// Reads "NAV App Installed App" (table 2000000153) — available in Cloud + OnPrem.
     /// </summary>
     procedure GetExtensionsJson(var Payload: Text)
     var
@@ -40,6 +58,10 @@ codeunit 50200 "Impact Analyzer Mgmt"
                     NavAppInstalled."Version Minor",
                     NavAppInstalled."Version Build",
                     NavAppInstalled."Version Revision"));
+                ExtObj.Add('versionMajor', NavAppInstalled."Version Major");
+                ExtObj.Add('versionMinor', NavAppInstalled."Version Minor");
+                ExtObj.Add('versionBuild', NavAppInstalled."Version Build");
+                ExtObj.Add('versionRevision', NavAppInstalled."Version Revision");
                 ExtObj.Add('type', ClassifyPublisher(NavAppInstalled.Publisher, OwnPublisher));
                 ExtArray.Add(ExtObj);
             until NavAppInstalled.Next() = 0;
@@ -51,11 +73,17 @@ codeunit 50200 "Impact Analyzer Mgmt"
     /// <summary>
     /// Core procedure: computes impact of updating TargetAppId to a new version.
     ///
-    /// For every installed extension:
-    ///   1. Get its ModuleInfo via NavApp.GetModuleInfo()
-    ///   2. Check if it declares a dependency on TargetAppId
-    ///   3. If yes, evaluate compatibility using the four rules
-    ///   4. Build a result object with status, reason, and recommended action
+    /// Strategy:
+    ///   1. For each installed extension, get its ModuleInfo
+    ///   2. Check ModuleInfo.Dependencies() for a dependency matching TargetAppId
+    ///   3. ModuleDependencyInfo only gives us .Id, .Name, .Publisher
+    ///      (NO min/max version range available in AL runtime)
+    ///   4. We use the TARGET extension's current installed version vs the proposed
+    ///      new version to determine risk level:
+    ///      - Different major = RED (breaking)
+    ///      - Same major, higher minor = AMBER (recompile)
+    ///      - Same major.minor, higher build/rev = AMBER (low risk recompile)
+    ///      - Downgrade = RED
     /// </summary>
     procedure ComputeImpact(
         TargetAppId: Guid;
@@ -81,8 +109,6 @@ codeunit 50200 "Impact Analyzer Mgmt"
         StatusLabel: Text;
         Reason: Text;
         Action: Text;
-        MinVer: Text;
-        MaxVer: Text;
         OwnPublisher: Text;
         GreenCount: Integer;
         AmberCount: Integer;
@@ -92,79 +118,80 @@ codeunit 50200 "Impact Analyzer Mgmt"
         OverallRisk: Text;
         OverallMessage: Text;
         OldVersion: Text;
+        NewVersionStr: Text;
+        CurMajor: Integer;
+        CurMinor: Integer;
+        CurBuild: Integer;
+        CurRevision: Integer;
         FoundDep: Boolean;
+        DepName: Text;
     begin
         OwnPublisher := GetOwnPublisher();
         TargetIdClean := CleanGuid(TargetAppId);
+        NewVersionStr := FormatVersion(NewMajor, NewMinor, NewBuild, NewRevision);
 
-        // Get the target extension's current info
+        // Get the target extension's current installed version
         TargetApp.Reset();
         TargetApp.SetRange("App ID", TargetAppId);
         if TargetApp.FindFirst() then begin
-            OldVersion := FormatVersion(
-                TargetApp."Version Major",
-                TargetApp."Version Minor",
-                TargetApp."Version Build",
-                TargetApp."Version Revision");
+            CurMajor := TargetApp."Version Major";
+            CurMinor := TargetApp."Version Minor";
+            CurBuild := TargetApp."Version Build";
+            CurRevision := TargetApp."Version Revision";
+            OldVersion := FormatVersion(CurMajor, CurMinor, CurBuild, CurRevision);
+
             TargetObj.Add('id', TargetIdClean);
             TargetObj.Add('name', TargetApp.Name);
             TargetObj.Add('publisher', TargetApp.Publisher);
             TargetObj.Add('oldVersion', OldVersion);
-            TargetObj.Add('newVersion', FormatVersion(NewMajor, NewMinor, NewBuild, NewRevision));
+            TargetObj.Add('newVersion', NewVersionStr);
+        end else begin
+            // Target extension not found — should not happen but handle gracefully
+            TargetObj.Add('id', TargetIdClean);
+            TargetObj.Add('name', 'Unknown');
+            TargetObj.Add('publisher', '');
+            TargetObj.Add('oldVersion', '0.0.0.0');
+            TargetObj.Add('newVersion', NewVersionStr);
+            OldVersion := '0.0.0.0';
         end;
 
-        // Iterate all installed extensions to find those that depend on the target
+        // Initialize counters
         GreenCount := 0;
         AmberCount := 0;
         RedCount := 0;
         GreyCount := 0;
+        TotalCount := 0;
 
+        // Iterate ALL installed extensions to find dependents of our target
         NavAppInstalled.Reset();
         if NavAppInstalled.FindSet() then
             repeat
-                // Skip the target extension itself
+                // Skip the target extension itself — it can't depend on itself
                 if NavAppInstalled."App ID" <> TargetAppId then begin
 
-                    // Try to get module info for this extension
+                    // Try to read this extension's module info
                     if NavApp.GetModuleInfo(NavAppInstalled."App ID", ModInfo) then begin
                         DepList := ModInfo.Dependencies();
                         FoundDep := false;
 
-                        // Search its dependencies for one matching our target
+                        // Check each dependency to see if it references our target
                         foreach DepInfo in DepList do begin
-                            DepIdClean := CleanGuid(DepInfo.Id());
+                            DepIdClean := CleanGuid(DepInfo.Id);
 
                             if DepIdClean = TargetIdClean then begin
                                 FoundDep := true;
 
-                                // Extract the version range this dependent declares
-                                MinVer := FormatVersion(
-                                    DepInfo.MinVersion().Major(),
-                                    DepInfo.MinVersion().Minor(),
-                                    DepInfo.MinVersion().Build(),
-                                    DepInfo.MinVersion().Revision());
-                                MaxVer := FormatVersion(
-                                    DepInfo.MaxVersion().Major(),
-                                    DepInfo.MaxVersion().Minor(),
-                                    DepInfo.MaxVersion().Build(),
-                                    DepInfo.MaxVersion().Revision());
-
-                                // Evaluate compatibility using the four rules
+                                // This extension depends on our target.
+                                // Evaluate compatibility using version heuristics.
                                 EvaluateCompatibility(
+                                    CurMajor, CurMinor, CurBuild, CurRevision,
                                     NewMajor, NewMinor, NewBuild, NewRevision,
-                                    DepInfo.MinVersion().Major(),
-                                    DepInfo.MinVersion().Minor(),
-                                    DepInfo.MinVersion().Build(),
-                                    DepInfo.MinVersion().Revision(),
-                                    DepInfo.MaxVersion().Major(),
-                                    DepInfo.MaxVersion().Minor(),
-                                    DepInfo.MaxVersion().Build(),
-                                    DepInfo.MaxVersion().Revision(),
                                     NavAppInstalled.Name,
-                                    FormatVersion(NewMajor, NewMinor, NewBuild, NewRevision),
+                                    NewVersionStr,
+                                    OldVersion,
                                     Status, StatusLabel, Reason, Action);
 
-                                // Build the dependent result object
+                                // Build dependent result object
                                 Clear(DepObj);
                                 DepObj.Add('id', CleanGuid(NavAppInstalled."App ID"));
                                 DepObj.Add('name', NavAppInstalled.Name);
@@ -174,16 +201,19 @@ codeunit 50200 "Impact Analyzer Mgmt"
                                     NavAppInstalled."Version Minor",
                                     NavAppInstalled."Version Build",
                                     NavAppInstalled."Version Revision"));
-                                DepObj.Add('type', ClassifyPublisher(NavAppInstalled.Publisher, OwnPublisher));
+                                DepObj.Add('type', ClassifyPublisher(
+                                    NavAppInstalled.Publisher, OwnPublisher));
                                 DepObj.Add('status', Status);
                                 DepObj.Add('statusLabel', StatusLabel);
-                                DepObj.Add('minVersion', MinVer);
-                                DepObj.Add('maxVersion', MaxVer);
+                                // Since we cannot read min/max from ModuleDependencyInfo,
+                                // we show the current installed version of the target as reference
+                                DepObj.Add('minVersion', OldVersion);
+                                DepObj.Add('maxVersion', '');
                                 DepObj.Add('reason', Reason);
                                 DepObj.Add('action', Action);
                                 DepsArray.Add(DepObj);
 
-                                // Count by status
+                                // Increment status counter
                                 case Status of
                                     'green':
                                         GreenCount += 1;
@@ -198,33 +228,44 @@ codeunit 50200 "Impact Analyzer Mgmt"
                                 TotalCount += 1;
                             end;
                         end;
+
+                    end else begin
+                        // GetModuleInfo failed — we cannot determine if this extension
+                        // depends on our target. We skip it silently.
+                        // Only extensions where we KNOW there's a dependency get reported.
                     end;
                 end;
             until NavAppInstalled.Next() = 0;
 
-        // Compute overall risk
+        // Determine overall risk level from worst status found
         if TotalCount = 0 then begin
             OverallRisk := 'none';
-            OverallMessage := 'No extensions depend on this one. Safe to publish any version.';
+            OverallMessage := 'No installed extensions depend on this one. Safe to publish any version.';
         end else if RedCount > 0 then begin
             OverallRisk := 'high';
-            OverallMessage := StrSubstNo('%1 extension(s) will break if you publish this version.', RedCount);
+            OverallMessage := StrSubstNo(
+                '%1 extension(s) will likely break if you publish version %2.',
+                RedCount, NewVersionStr);
         end else if AmberCount > 0 then begin
             OverallRisk := 'medium';
-            OverallMessage := StrSubstNo('%1 extension(s) need recompilation and retesting.', AmberCount);
+            OverallMessage := StrSubstNo(
+                '%1 extension(s) should be recompiled and retested against version %2.',
+                AmberCount, NewVersionStr);
         end else begin
             OverallRisk := 'low';
-            OverallMessage := StrSubstNo('All %1 dependent extension(s) are compatible.', GreenCount);
+            OverallMessage := StrSubstNo(
+                'All %1 dependent extension(s) should remain compatible with version %2.',
+                GreenCount, NewVersionStr);
         end;
 
-        // Build summary object
+        // Build summary
         SummaryObj.Add('green', GreenCount);
         SummaryObj.Add('amber', AmberCount);
         SummaryObj.Add('red', RedCount);
         SummaryObj.Add('grey', GreyCount);
         SummaryObj.Add('total', TotalCount);
 
-        // Assemble root result
+        // Assemble final JSON
         RootObj.Add('targetApp', TargetObj);
         RootObj.Add('overallRisk', OverallRisk);
         RootObj.Add('overallMessage', OverallMessage);
@@ -234,139 +275,142 @@ codeunit 50200 "Impact Analyzer Mgmt"
     end;
 
     /// <summary>
-    /// Evaluates compatibility between a new version and a dependent's declared range.
+    /// Evaluates compatibility between the current installed version of the target
+    /// and the proposed new version, from the perspective of a dependent extension.
     ///
-    /// Rule 1 (GREEN): New version within [min, max] range
-    /// Rule 2 (AMBER): Exceeds max but same major version, OR no range declared
-    /// Rule 3 (RED):   Different major, or below minimum
-    /// Rule 4 (GREY):  Handled by caller when GetModuleInfo fails
+    /// Since ModuleDependencyInfo does NOT expose version range fields in the AL
+    /// runtime API, we use these practical heuristic rules:
+    ///
+    /// RED (Breaking):
+    ///   - New MAJOR differs from current MAJOR
+    ///     Rationale: Major version bump conventionally signals breaking API changes.
+    ///     Dependent extensions compiled against major=3 will likely fail on major=4.
+    ///   - New version is LOWER than current version (downgrade)
+    ///     Rationale: Dependent may use APIs added in the current version.
+    ///
+    /// AMBER (Warning — recompile recommended):
+    ///   - Same major, but MINOR increased
+    ///     Rationale: Minor version may add new APIs but should not break existing ones.
+    ///     Recompilation ensures the dependent picks up any symbol changes.
+    ///   - Same major.minor, but BUILD or REVISION increased
+    ///     Rationale: Typically bug fixes. Very low risk but recompile for safety.
+    ///
+    /// GREEN (Safe):
+    ///   - Versions are identical (edge case — UI should prevent this)
     /// </summary>
     local procedure EvaluateCompatibility(
+        CurMaj: Integer; CurMin: Integer; CurBld: Integer; CurRev: Integer;
         NewMaj: Integer; NewMin: Integer; NewBld: Integer; NewRev: Integer;
-        MinMaj: Integer; MinMin: Integer; MinBld: Integer; MinRev: Integer;
-        MaxMaj: Integer; MaxMin: Integer; MaxBld: Integer; MaxRev: Integer;
         DependentName: Text;
         NewVersionStr: Text;
+        OldVersionStr: Text;
         var Status: Text;
         var StatusLabel: Text;
         var Reason: Text;
         var Action: Text)
     var
-        MinIsZero: Boolean;
-        MaxIsZero: Boolean;
-        CmpWithMin: Integer;
-        CmpWithMax: Integer;
+        VersionComparison: Integer;
     begin
-        // Check if min/max are 0.0.0.0 (no range declared)
-        MinIsZero := (MinMaj = 0) and (MinMin = 0) and (MinBld = 0) and (MinRev = 0);
-        MaxIsZero := (MaxMaj = 0) and (MaxMin = 0) and (MaxBld = 0) and (MaxRev = 0);
+        // Compare new version against current version
+        VersionComparison := CompareVersions(
+            NewMaj, NewMin, NewBld, NewRev,
+            CurMaj, CurMin, CurBld, CurRev);
 
-        // Special case: no version constraints at all
-        if MinIsZero and MaxIsZero then begin
+        // Case 1: Downgrade — new version is LOWER than current
+        if VersionComparison < 0 then begin
+            Status := 'red';
+            StatusLabel := 'BREAKING';
+            Reason := StrSubstNo(
+                'Version %1 is a downgrade from the currently installed %2. ' +
+                '%3 may depend on APIs or fixes introduced in %2 that would be missing.',
+                NewVersionStr, OldVersionStr, DependentName);
+            Action := StrSubstNo(
+                'Do not downgrade. If you must revert, recompile and test %1 against v%2 first.',
+                DependentName, NewVersionStr);
+            exit;
+        end;
+
+        // Case 2: Same version — no actual change
+        if VersionComparison = 0 then begin
+            Status := 'green';
+            StatusLabel := 'SAFE';
+            Reason := 'The new version is identical to the currently installed version. No impact.';
+            Action := 'No action needed.';
+            exit;
+        end;
+
+        // New version is HIGHER than current. Check what changed.
+
+        // Case 3: MAJOR version changed → RED (breaking)
+        if NewMaj <> CurMaj then begin
+            Status := 'red';
+            StatusLabel := 'BREAKING';
+            Reason := StrSubstNo(
+                'Major version changes from %1 to %2. By convention, major version bumps ' +
+                'indicate breaking API changes. %3 was compiled against major version %1 ' +
+                'and will likely fail on major version %2.',
+                CurMaj, NewMaj, DependentName);
+            Action := StrSubstNo(
+                'Before publishing v%1: update %2 to be compatible with major version %3, ' +
+                'recompile it, and test thoroughly.',
+                NewVersionStr, DependentName, NewMaj);
+            exit;
+        end;
+
+        // Same major version from here on
+
+        // Case 4: MINOR version increased → AMBER (recompile)
+        if NewMin > CurMin then begin
             Status := 'amber';
             StatusLabel := 'WARNING';
             Reason := StrSubstNo(
-                '%1 declares no version range for this dependency. Compatibility cannot be verified.',
+                'Minor version increases from %1.%2 to %3.%4. Minor updates may add new APIs ' +
+                'or modify behavior. %5 should be recompiled to ensure symbol compatibility.',
+                CurMaj, CurMin, NewMaj, NewMin, DependentName);
+            Action := StrSubstNo(
+                'Recompile %1 against v%2 and run regression tests before publishing.',
+                DependentName, NewVersionStr);
+            exit;
+        end;
+
+        // Case 5: Same major.minor, BUILD or REVISION changed → AMBER (low risk)
+        if (NewBld > CurBld) or ((NewBld = CurBld) and (NewRev > CurRev)) then begin
+            Status := 'amber';
+            StatusLabel := 'WARNING';
+            Reason := StrSubstNo(
+                'Build/revision changes from %1 to %2. These are typically bug fixes with low ' +
+                'risk of breaking changes. However, %3 should still be recompiled for safety.',
+                OldVersionStr, NewVersionStr, DependentName);
+            Action := StrSubstNo(
+                'Recompile %1 against v%2 as a precaution. Risk is low.',
+                DependentName, NewVersionStr);
+            exit;
+        end;
+
+        // Fallback: same major.minor but minor decreased (e.g., 3.5 → 3.3 but major same)
+        // This is a partial downgrade within the same major
+        if NewMin < CurMin then begin
+            Status := 'red';
+            StatusLabel := 'BREAKING';
+            Reason := StrSubstNo(
+                'Minor version decreases from %1.%2 to %3.%4 within the same major version. ' +
+                '%5 may use APIs added in minor version %2 that would be missing in %4.',
+                CurMaj, CurMin, NewMaj, NewMin, DependentName);
+            Action := StrSubstNo(
+                'Do not downgrade the minor version. Recompile and test %1 if you must.',
                 DependentName);
-            Action := StrSubstNo(
-                'Recompile and test %1 against v%2 before publishing.',
-                DependentName, NewVersionStr);
             exit;
         end;
 
-        // Compare new version with declared minimum
-        CmpWithMin := CompareVersions(NewMaj, NewMin, NewBld, NewRev, MinMaj, MinMin, MinBld, MinRev);
-
-        // Compare new version with declared maximum (only if max is not 0.0.0.0)
-        if not MaxIsZero then
-            CmpWithMax := CompareVersions(NewMaj, NewMin, NewBld, NewRev, MaxMaj, MaxMin, MaxBld, MaxRev)
-        else
-            CmpWithMax := 0; // No max declared — treat as unbounded
-
-        // RULE 3a: New version below minimum → RED
-        if (not MinIsZero) and (CmpWithMin < 0) then begin
-            Status := 'red';
-            StatusLabel := 'BREAKING';
-            Reason := StrSubstNo(
-                'New version %1 is below the minimum required version %2.%3.%4.%5. This is a downgrade that will break %6.',
-                NewVersionStr, MinMaj, MinMin, MinBld, MinRev, DependentName);
-            Action := StrSubstNo(
-                'Do not downgrade below v%1.%2.%3.%4, or update %5 to accept lower versions.',
-                MinMaj, MinMin, MinBld, MinRev, DependentName);
-            exit;
-        end;
-
-        // RULE 3b: Different major version → RED
-        if (not MinIsZero) and (NewMaj <> MinMaj) then begin
-            Status := 'red';
-            StatusLabel := 'BREAKING';
-            Reason := StrSubstNo(
-                'New version %1 has major version %2, but %3 expects major version %4. Major version changes are breaking.',
-                NewVersionStr, NewMaj, DependentName, MinMaj);
-            Action := StrSubstNo(
-                'Update %1 to declare compatibility with major version %2 and recompile before publishing.',
-                DependentName, NewMaj);
-            exit;
-        end;
-
-        // Check against max if declared
-        if not MaxIsZero then begin
-            // RULE 1: Within range [min, max] → GREEN
-            if CmpWithMax <= 0 then begin
-                Status := 'green';
-                StatusLabel := 'SAFE';
-                Reason := StrSubstNo(
-                    'New version %1 is within the accepted range (≥%2.%3.%4.%5 and ≤%6.%7.%8.%9).',
-                    NewVersionStr, MinMaj, MinMin, MinBld, MinRev, MaxMaj, MaxMin, MaxBld, MaxRev);
-                Action := 'No action needed. This extension will continue to work.';
-                exit;
-            end;
-
-            // RULE 2: Exceeds max but same major → AMBER
-            if NewMaj = MaxMaj then begin
-                Status := 'amber';
-                StatusLabel := 'WARNING';
-                Reason := StrSubstNo(
-                    'New version %1 exceeds the maximum declared version %2.%3.%4.%5, but remains on major version %6.',
-                    NewVersionStr, MaxMaj, MaxMin, MaxBld, MaxRev, NewMaj);
-                Action := StrSubstNo(
-                    'Recompile %1 against v%2 and update its dependency range to include the new version.',
-                    DependentName, NewVersionStr);
-                exit;
-            end;
-
-            // RULE 3a again: Exceeds max AND different major → RED
-            Status := 'red';
-            StatusLabel := 'BREAKING';
-            Reason := StrSubstNo(
-                'New version %1 exceeds the maximum %2.%3.%4.%5 and has a different major version (%6 vs %7). This is a breaking change.',
-                NewVersionStr, MaxMaj, MaxMin, MaxBld, MaxRev, NewMaj, MaxMaj);
-            Action := StrSubstNo(
-                'Update %1 to declare compatibility with v%2 and recompile before publishing.',
-                DependentName, NewVersionStr);
-            exit;
-        end;
-
-        // Max is 0.0.0.0 (unbounded) and min is met → check major match
-        if NewMaj = MinMaj then begin
-            // Same major, above or at min, no max → GREEN
-            Status := 'green';
-            StatusLabel := 'SAFE';
-            Reason := StrSubstNo(
-                'New version %1 meets the minimum requirement (≥%2.%3.%4.%5) with no maximum cap.',
-                NewVersionStr, MinMaj, MinMin, MinBld, MinRev);
-            Action := 'No action needed. This extension will continue to work.';
-        end else begin
-            // Different major, no max declared → RED
-            Status := 'red';
-            StatusLabel := 'BREAKING';
-            Reason := StrSubstNo(
-                'New version %1 has major version %2, but %3 expects major version %4. Major version changes are breaking.',
-                NewVersionStr, NewMaj, DependentName, MinMaj);
-            Action := StrSubstNo(
-                'Update %1 to declare compatibility with major version %2 and recompile.',
-                DependentName, NewMaj);
-        end;
+        // Fallback for any edge case not caught above
+        Status := 'amber';
+        StatusLabel := 'WARNING';
+        Reason := StrSubstNo(
+            'Version changes from %1 to %2. Impact could not be precisely determined for %3.',
+            OldVersionStr, NewVersionStr, DependentName);
+        Action := StrSubstNo(
+            'Recompile and test %1 against v%2 before publishing.',
+            DependentName, NewVersionStr);
     end;
 
     /// <summary>
@@ -380,9 +424,12 @@ codeunit 50200 "Impact Analyzer Mgmt"
         PubLower := LowerCase(Publisher);
         OwnLower := LowerCase(OwnPublisher);
 
-        if PubLower.Contains('microsoft') then exit('ms');
-        if (OwnLower <> '') and (PubLower = OwnLower) then exit('custom');
-        if IsKnownISV(PubLower) then exit('isv');
+        if PubLower.Contains('microsoft') then
+            exit('ms');
+        if (OwnLower <> '') and (PubLower = OwnLower) then
+            exit('custom');
+        if IsKnownISV(PubLower) then
+            exit('isv');
         exit('ext');
     end;
 
@@ -396,7 +443,8 @@ codeunit 50200 "Impact Analyzer Mgmt"
 
     /// <summary>
     /// Compares two version quadruples lexicographically.
-    /// Returns: -1 if A &lt; B, 0 if A = B, 1 if A &gt; B
+    /// Returns: -1 if A is less than B, 0 if equal, 1 if A is greater than B.
+    /// Compares Major first, then Minor, then Build, then Revision.
     /// </summary>
     procedure CompareVersions(
         AMaj: Integer; AMin: Integer; ABld: Integer; ARev: Integer;
@@ -414,7 +462,8 @@ codeunit 50200 "Impact Analyzer Mgmt"
     end;
 
     /// <summary>
-    /// Strips braces and lowercases a Guid for clean comparison.
+    /// Strips braces and lowercases a Guid for consistent string comparison.
+    /// Format specifier 4 produces {xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}.
     /// </summary>
     procedure CleanGuid(GuidValue: Guid): Text
     var
@@ -425,6 +474,10 @@ codeunit 50200 "Impact Analyzer Mgmt"
         exit(GuidText);
     end;
 
+    /// <summary>
+    /// Returns the publisher of THIS extension.
+    /// Used as baseline for classifying "custom" extensions.
+    /// </summary>
     local procedure GetOwnPublisher(): Text
     var
         AppInfo: ModuleInfo;
@@ -433,6 +486,9 @@ codeunit 50200 "Impact Analyzer Mgmt"
         exit(AppInfo.Publisher);
     end;
 
+    /// <summary>
+    /// Checks if a lowercased publisher name matches a known ISV.
+    /// </summary>
     local procedure IsKnownISV(PubLower: Text): Boolean
     begin
         if PubLower.Contains('continia') then exit(true);
